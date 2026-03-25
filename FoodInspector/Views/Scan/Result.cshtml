@@ -1,0 +1,113 @@
+@model FoodInspector.Models.ScanViewModel
+@{
+    ViewData["Title"] = "Analysis Result";
+
+    string verdictColor = Model.Analysis?.OverallVerdict switch
+    {
+        "Buy" => "success",
+        "Caution" => "warning",
+        "Avoid" => "danger",
+        _ => "secondary"
+    };
+
+    string verdictIcon = Model.Analysis?.OverallVerdict switch
+    {
+        "Buy" => "bi-hand-thumbs-up-fill",
+        "Caution" => "bi-exclamation-triangle-fill",
+        "Avoid" => "bi-x-octagon-fill",
+        _ => "bi-question-circle"
+    };
+
+    string verdictEmoji = Model.Analysis?.OverallVerdict switch
+    {
+        "Buy" => "✅",
+        "Caution" => "⚠️",
+        "Avoid" => "🚫",
+        _ => "❓"
+    };
+}
+
+<div class="row justify-content-center">
+    <div class="col-12 col-md-8 col-lg-6">
+
+        <!-- Overall Verdict Card -->
+        <div class="card border-@verdictColor shadow mb-3">
+            <div class="card-body text-center">
+                <div style="font-size:3rem;">@verdictEmoji</div>
+                <h2 class="fw-bold text-@verdictColor">
+                    <i class="bi @verdictIcon"></i> @Model.Analysis?.OverallVerdict
+                </h2>
+                <p class="lead mb-0">@Model.Analysis?.Summary</p>
+            </div>
+        </div>
+
+        <!-- Captured Image Thumbnail -->
+        @if (!string.IsNullOrWhiteSpace(Model.ImageBase64))
+        {
+            <div class="text-center mb-3">
+                <img src="@Model.ImageBase64" class="img-fluid rounded shadow-sm" style="max-height:200px;" alt="Scanned label" />
+            </div>
+        }
+
+        <!-- Extracted Text -->
+        @if (!string.IsNullOrWhiteSpace(Model.ExtractedText))
+        {
+            <div class="card mb-3">
+                <div class="card-header bg-light">
+                    <i class="bi bi-card-text"></i> Extracted Text (OCR)
+                </div>
+                <div class="card-body">
+                    <pre class="mb-0" style="white-space:pre-wrap; font-size:0.85rem;">@Model.ExtractedText</pre>
+                </div>
+            </div>
+        }
+
+        <!-- Ingredient Details -->
+        @if (Model.Analysis?.Ingredients?.Any() == true)
+        {
+            <h5 class="fw-bold mt-3"><i class="bi bi-list-check"></i> Ingredient Breakdown</h5>
+            <div class="list-group mb-3">
+                @foreach (var ing in Model.Analysis.Ingredients)
+                {
+                    var badgeClass = ing.Status switch
+                    {
+                        "Good" => "bg-success",
+                        "Neutral" => "bg-secondary",
+                        "Bad" => "bg-danger",
+                        _ => "bg-secondary"
+                    };
+
+                    var icon = ing.Status switch
+                    {
+                        "Good" => "bi-check-circle-fill text-success",
+                        "Neutral" => "bi-dash-circle text-secondary",
+                        "Bad" => "bi-x-circle-fill text-danger",
+                        _ => "bi-question-circle"
+                    };
+
+                    <div class="list-group-item">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <i class="bi @icon"></i>
+                                <strong>@ing.Name</strong>
+                            </div>
+                            <span class="badge @badgeClass rounded-pill">@ing.Status</span>
+                        </div>
+                        <small class="text-muted">@ing.Reason</small>
+                    </div>
+                }
+            </div>
+        }
+
+        <!-- Actions -->
+        <div class="d-flex gap-2 justify-content-center mb-4">
+            <a asp-controller="Scan" asp-action="Index" class="btn btn-success btn-lg">
+                <i class="bi bi-camera"></i> Scan Another
+            </a>
+            <a asp-controller="Scan" asp-action="History" class="btn btn-outline-secondary btn-lg">
+                <i class="bi bi-clock-history"></i> History
+            </a>
+        </div>
+
+    </div>
+</div>

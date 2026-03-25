@@ -1,0 +1,165 @@
+@model FoodInspector.Models.ScanViewModel
+@{
+    ViewData["Title"] = "Scan Ingredients";
+}
+
+<div class="row justify-content-center">
+    <div class="col-12 col-md-8 col-lg-6">
+
+        <div class="text-center mb-3">
+            <h4 class="fw-bold text-success">
+                <i class="bi bi-camera"></i> Scan Ingredients
+            </h4>
+            <p class="text-muted">
+                Hi <strong>@Model.UserName</strong>! Point your camera at the ingredient list on the food package.
+            </p>
+        </div>
+
+        @if (ViewBag.Error != null)
+        {
+            <div class="alert alert-danger">
+                <i class="bi bi-exclamation-triangle"></i> @ViewBag.Error
+            </div>
+        }
+
+        <!-- Camera area -->
+        <div class="card shadow-sm border-0 mb-3">
+            <div class="card-body p-2">
+                <video id="cameraFeed" autoplay playsinline
+                       class="w-100 rounded" style="max-height:60vh; object-fit:cover; display:none;"></video>
+                <canvas id="captureCanvas" style="display:none;"></canvas>
+                <img id="previewImg" class="w-100 rounded" style="display:none; max-height:60vh; object-fit:contain;" />
+
+                <div id="cameraPlaceholder" class="text-center py-5 text-muted">
+                    <i class="bi bi-camera" style="font-size:3rem;"></i>
+                    <p>Tap the button below to start your camera</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="d-flex gap-2 mb-3 flex-wrap justify-content-center">
+            <button id="btnStartCamera" class="btn btn-outline-success btn-lg" onclick="startCamera()">
+                <i class="bi bi-camera-video"></i> Start Camera
+            </button>
+            <button id="btnCapture" class="btn btn-success btn-lg" style="display:none;" onclick="capturePhoto()">
+                <i class="bi bi-camera-fill"></i> Take Photo
+            </button>
+            <button id="btnRetake" class="btn btn-outline-secondary btn-lg" style="display:none;" onclick="retakePhoto()">
+                <i class="bi bi-arrow-counterclockwise"></i> Retake
+            </button>
+        </div>
+
+        <!-- Or upload from gallery -->
+        <div class="text-center mb-3">
+            <label class="form-label text-muted small">Or pick a photo from your gallery:</label>
+            <input type="file" id="fileInput" accept="image/*" class="form-control" onchange="handleFileSelect(event)" />
+        </div>
+
+        <!-- Hidden form for submission -->
+        <form id="analyzeForm" asp-controller="Scan" asp-action="Analyze" method="post">
+            <input type="hidden" name="imageData" id="imageDataInput" />
+            <button id="btnAnalyze" type="submit" class="btn btn-warning btn-lg w-100" style="display:none;">
+                <i class="bi bi-search"></i> Analyse Ingredients
+            </button>
+        </form>
+
+        <!-- Loading spinner -->
+        <div id="loadingSpinner" class="text-center my-4" style="display:none;">
+            <div class="spinner-border text-success" role="status" style="width:3rem;height:3rem;">
+                <span class="visually-hidden">Analysing...</span>
+            </div>
+            <p class="mt-2 text-muted">Reading ingredients and analysing… please wait.</p>
+        </div>
+
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    let videoStream = null;
+
+    async function startCamera() {
+        const video = document.getElementById('cameraFeed');
+        const placeholder = document.getElementById('cameraPlaceholder');
+        try {
+            videoStream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }
+            });
+            video.srcObject = videoStream;
+            video.style.display = 'block';
+            placeholder.style.display = 'none';
+            document.getElementById('btnStartCamera').style.display = 'none';
+            document.getElementById('btnCapture').style.display = 'inline-block';
+        } catch (err) {
+            alert('Camera access denied or not available. You can upload a photo instead.\n\n' + err.message);
+        }
+    }
+
+    function capturePhoto() {
+        const video = document.getElementById('cameraFeed');
+        const canvas = document.getElementById('captureCanvas');
+        const preview = document.getElementById('previewImg');
+
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        canvas.getContext('2d').drawImage(video, 0, 0);
+
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        preview.src = dataUrl;
+        preview.style.display = 'block';
+        video.style.display = 'none';
+        document.getElementById('imageDataInput').value = dataUrl;
+
+        // Stop camera
+        if (videoStream) {
+            videoStream.getTracks().forEach(t => t.stop());
+            videoStream = null;
+        }
+
+        document.getElementById('btnCapture').style.display = 'none';
+        document.getElementById('btnRetake').style.display = 'inline-block';
+        document.getElementById('btnAnalyze').style.display = 'block';
+    }
+
+    function retakePhoto() {
+        document.getElementById('previewImg').style.display = 'none';
+        document.getElementById('btnRetake').style.display = 'none';
+        document.getElementById('btnAnalyze').style.display = 'none';
+        document.getElementById('imageDataInput').value = '';
+        startCamera();
+    }
+
+    function handleFileSelect(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function (e) {
+            const preview = document.getElementById('previewImg');
+            const placeholder = document.getElementById('cameraPlaceholder');
+            const video = document.getElementById('cameraFeed');
+            preview.src = e.target.result;
+            preview.style.display = 'block';
+            video.style.display = 'none';
+            placeholder.style.display = 'none';
+            document.getElementById('imageDataInput').value = e.target.result;
+            document.getElementById('btnStartCamera').style.display = 'none';
+            document.getElementById('btnCapture').style.display = 'none';
+            document.getElementById('btnRetake').style.display = 'inline-block';
+            document.getElementById('btnAnalyze').style.display = 'block';
+
+            if (videoStream) {
+                videoStream.getTracks().forEach(t => t.stop());
+                videoStream = null;
+            }
+        };
+        reader.readAsDataURL(file);
+    }
+
+    // Show loading spinner on submit
+    document.getElementById('analyzeForm').addEventListener('submit', function () {
+        document.getElementById('loadingSpinner').style.display = 'block';
+        document.getElementById('btnAnalyze').disabled = true;
+    });
+</script>
+}
