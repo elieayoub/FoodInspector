@@ -1,3 +1,4 @@
 <Solution>
+  <Project Path="FoodInspector.Tests/FoodInspector.Tests.csproj" />
   <Project Path="FoodInspector/FoodInspector.csproj" />
 </Solution>
