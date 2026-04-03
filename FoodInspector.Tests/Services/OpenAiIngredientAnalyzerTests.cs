@@ -239,4 +239,100 @@ public class OpenAiIngredientAnalyzerTests
         Assert.NotEmpty(result.Summary);
         Assert.NotEmpty(result.Ingredients);
     }
+
+    // ── Zero-quantity ingredients should NOT be flagged ──
+
+    [Theory]
+    [InlineData("Trans Fat 0g")]
+    [InlineData("Trans Fat 0 g")]
+    [InlineData("Trans Fat 0.0g")]
+    [InlineData("Sodium 0mg")]
+    [InlineData("Sodium 0 mg")]
+    [InlineData("Caffeine 0mg")]
+    [InlineData("Sugar 0g")]
+    [InlineData("Sugar 0%")]
+    [InlineData("Salt 0.0mg")]
+    public async Task AnalyzeAsync_ZeroQuantityIngredient_NotFlaggedAsBadOrNeutralFromKnownList(string ingredient)
+    {
+        var result = await _analyzer.AnalyzeAsync(ingredient, 30);
+
+        var detail = Assert.Single(result.Ingredients);
+        // A zero-quantity ingredient should be treated as Neutral (unknown),
+        // not classified via the KnownBad dictionary
+        Assert.NotEqual("Bad", detail.Status);
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_TransFat0g_DoesNotCountAsBadForVerdict()
+    {
+        var result = await _analyzer.AnalyzeAsync("Trans Fat 0g, Sugar, Flour", 30);
+
+        // Trans Fat 0g should not trigger Caution
+        Assert.Equal("Buy", result.OverallVerdict);
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_TransFatWithQuantity_StillFlaggedAsBad()
+    {
+        // Non-zero quantity should still be flagged
+        var result = await _analyzer.AnalyzeAsync("trans fat", 30);
+
+        var detail = Assert.Single(result.Ingredients);
+        Assert.Equal("Bad", detail.Status);
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_TransFat2g_StillFlaggedAsBad()
+    {
+        var result = await _analyzer.AnalyzeAsync("Trans Fat 2g", 30);
+
+        var detail = Assert.Single(result.Ingredients);
+        Assert.Equal("Bad", detail.Status);
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_Sodium850mg_StillClassified()
+    {
+        var result = await _analyzer.AnalyzeAsync("Sodium 850mg", 30);
+
+        var detail = Assert.Single(result.Ingredients);
+        // Sodium with a real amount should still be classified from KnownBad (Neutral)
+        Assert.Equal("Neutral", detail.Status);
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_MixOfZeroAndNonZero_OnlyNonZeroCounted()
+    {
+        // Trans Fat 0g should be ignored, but aspartame (no quantity) should be Bad
+        var result = await _analyzer.AnalyzeAsync("Trans Fat 0g, aspartame, flour", 30);
+
+        Assert.Equal("Caution", result.OverallVerdict);
+
+        var transFat = result.Ingredients
+            .FirstOrDefault(i => i.Name.Contains("Trans Fat", StringComparison.OrdinalIgnoreCase));
+        Assert.NotNull(transFat);
+        Assert.NotEqual("Bad", transFat!.Status);
+
+        var aspartame = result.Ingredients
+            .FirstOrDefault(i => i.Name.Contains("aspartame", StringComparison.OrdinalIgnoreCase));
+        Assert.NotNull(aspartame);
+        Assert.Equal("Bad", aspartame!.Status);
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_NutritionLabelStyle_ZeroTransFatNotCounted()
+    {
+        // Simulates OCR output from a real nutrition label
+        var text = "Total Fat 9g, Saturated Fat 4.5g, Trans Fat 0g, Cholesterol 35mg, Sodium 850mg";
+
+        var result = await _analyzer.AnalyzeAsync(text, 30);
+
+        // Trans Fat 0g should not make the verdict worse
+        var transFat = result.Ingredients
+            .FirstOrDefault(i => i.Name.Contains("Trans Fat", StringComparison.OrdinalIgnoreCase));
+        if (transFat != null)
+        {
+            Assert.NotEqual("Bad", transFat.Status);
+        }
+    }
 }

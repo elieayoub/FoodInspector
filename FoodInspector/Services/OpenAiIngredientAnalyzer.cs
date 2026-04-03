@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using FoodInspector.Models;
 
 namespace FoodInspector.Services;
@@ -184,6 +185,10 @@ Consider the user's age when evaluating risk: children, teens, adults, and elder
             {
                 if (item.Contains(kvp.Key, StringComparison.OrdinalIgnoreCase))
                 {
+                    // Skip ingredients whose quantity is zero (e.g. "Trans Fat 0g", "Sodium 0 mg", "Sugar 0%")
+                    if (HasZeroQuantity(item))
+                        break;
+
                     var reason = kvp.Value.Reason;
 
                     // Age-specific adjustments
@@ -262,5 +267,15 @@ Consider the user's age when evaluating risk: children, teens, adults, and elder
             Summary = summary,
             Ingredients = details
         };
+    }
+
+    /// <summary>
+    /// Returns true when the text indicates a zero quantity, e.g.
+    /// "Trans Fat 0g", "Sodium 0 mg", "Sugar 0%", "Caffeine 0.0g".
+    /// </summary>
+    private static bool HasZeroQuantity(string text)
+    {
+        // Matches patterns like "0g", "0 mg", "0%", "0.0g", "0.00mg"
+        return Regex.IsMatch(text, @"\b0+(\.0+)?\s*(%|m?g|mg|mcg)\b", RegexOptions.IgnoreCase);
     }
 }
