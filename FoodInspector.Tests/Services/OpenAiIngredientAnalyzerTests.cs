@@ -240,6 +240,100 @@ public class OpenAiIngredientAnalyzerTests
         Assert.NotEmpty(result.Ingredients);
     }
 
+    // ── Descriptive text / disclaimer paragraphs should be filtered out ──
+
+    [Fact]
+    public async Task AnalyzeAsync_DisclaimerParagraph_IsNotTreatedAsIngredient()
+    {
+        // This is the exact text OCR extracts from the bottom of nutrition labels
+        var text = "* The % Daily Value (DV) tells you how much a nutrient in\n" +
+                   "aserving of food contributes to a daily diet. 2,000 calories\n" +
+                   "aday is used for general nutrition advice";
+
+        var result = await _analyzer.AnalyzeAsync(text, 30);
+
+        // None of these sentence fragments should appear as ingredients
+        Assert.DoesNotContain(result.Ingredients,
+            i => i.Name.Contains("tells you", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(result.Ingredients,
+            i => i.Name.Contains("contributes", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(result.Ingredients,
+            i => i.Name.Contains("general nutrition advice", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Theory]
+    [InlineData("The % Daily Value tells you how much a nutrient in")]
+    [InlineData("aserving of food contributes to a daily diet")]
+    [InlineData("aday is used for general nutrition advice")]
+    [InlineData("Percent daily values are based on a 2000 calorie diet")]
+    [InlineData("Not a significant source of added sugars")]
+    public async Task AnalyzeAsync_SentenceText_IsFilteredOut(string sentence)
+    {
+        var result = await _analyzer.AnalyzeAsync(sentence, 30);
+
+        // Sentence text should produce no ingredients
+        Assert.Empty(result.Ingredients);
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_MixOfIngredientsAndDisclaimer_OnlyExtractsIngredients()
+    {
+        var text = "Sugar, Salt, Calcium 320mg\n" +
+                   "* The % Daily Value tells you how much a nutrient in\n" +
+                   "aserving of food contributes to a daily diet";
+
+        var result = await _analyzer.AnalyzeAsync(text, 30);
+
+        // Should have the real ingredients but not the disclaimer text
+        Assert.True(result.Ingredients.Count >= 2,
+            $"Expected at least 2 real ingredients, got {result.Ingredients.Count}");
+        Assert.DoesNotContain(result.Ingredients,
+            i => i.Name.Contains("tells you", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(result.Ingredients,
+            i => i.Name.Contains("contributes", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_RealNutritionLabelText_FiltersDisclaimer()
+    {
+        // Simulates full OCR output from a real nutrition label
+        var text = "Total Fat 9g\n" +
+                   "Trans Fat 0g\n" +
+                   "Sodium 850mg\n" +
+                   "Calcium 320mg\n" +
+                   "Iron 1.6mg\n" +
+                   "Protein 15g\n" +
+                   "Vitamin D 0mcg\n" +
+                   "* The % Daily Value (DV) tells you how much a nutrient in\n" +
+                   "aserving of food contributes to a daily diet. 2,000 calories\n" +
+                   "aday is used for general nutrition advice.";
+
+        var result = await _analyzer.AnalyzeAsync(text, 30);
+
+        // Should NOT have any disclaimer fragments as ingredients
+        Assert.DoesNotContain(result.Ingredients,
+            i => i.Name.Contains("tells", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(result.Ingredients,
+            i => i.Name.Contains("advice", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(result.Ingredients,
+            i => i.Name.Contains("diet", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Theory]
+    [InlineData("sugar")]
+    [InlineData("Trans Fat 2g")]
+    [InlineData("Sodium 850mg")]
+    [InlineData("high fructose corn syrup")]
+    [InlineData("whole grain oats")]
+    [InlineData("olive oil")]
+    public async Task AnalyzeAsync_RealIngredientNames_AreNotFilteredOut(string ingredient)
+    {
+        var result = await _analyzer.AnalyzeAsync(ingredient, 30);
+
+        // Real ingredient names should still produce exactly one ingredient
+        Assert.Single(result.Ingredients);
+    }
+
     // ── Zero-quantity ingredients should NOT be flagged ──
 
     [Theory]

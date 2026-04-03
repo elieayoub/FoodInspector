@@ -179,6 +179,10 @@ Consider the user's age when evaluating risk: children, teens, adults, and elder
             var item = raw.Trim('.', ':', '-', ' ', '(', ')');
             if (string.IsNullOrWhiteSpace(item)) continue;
 
+            // Skip descriptive text / disclaimers that OCR picked up
+            // (e.g. "The % Daily Value (DV) tells you how much a nutrient in")
+            if (IsDescriptiveText(item)) continue;
+
             var matched = false;
 
             foreach (var kvp in KnownBad)
@@ -278,4 +282,37 @@ Consider the user's age when evaluating risk: children, teens, adults, and elder
         // Matches patterns like "0g", "0 mg", "0%", "0.0g", "0.00mg"
         return Regex.IsMatch(text, @"\b0+(\.0+)?\s*(%|m?g|mg|mcg)\b", RegexOptions.IgnoreCase);
     }
+
+    /// <summary>
+    /// Returns true when the text looks like a descriptive sentence or disclaimer
+    /// rather than an ingredient name (e.g. "The % Daily Value tells you how much…").
+    /// </summary>
+    private static bool IsDescriptiveText(string text)
+    {
+        var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+        // Ingredient names rarely exceed 6 words
+        if (words.Length > 6)
+            return true;
+
+        // Count common English function words that never appear in ingredient names
+        int count = 0;
+        foreach (var word in words)
+        {
+            var clean = word.Trim('.', ',', ':', ';', '(', ')', '*', '%', '"', '\'');
+            if (_sentenceIndicators.Contains(clean) && ++count >= 2)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static readonly HashSet<string> _sentenceIndicators = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "the", "is", "are", "you", "your", "how", "much", "this", "that",
+        "tells", "used", "contributes", "based", "should", "would", "could",
+        "does", "have", "has", "was", "were", "been", "being", "about",
+        "into", "from", "per", "serves", "serving", "daily", "advice",
+        "diet", "general", "percent"
+    };
 }
