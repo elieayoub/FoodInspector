@@ -437,14 +437,17 @@ public class OpenAiIngredientAnalyzerTests
             Assert.NotEqual("Bad", transFat.Status);
         }
 
-        // "Total Fat 9g", "Saturated Fat 4.5g", "Cholesterol 35mg" are nutrition
-        // label structural text, not ingredients — they should be filtered out
+        // "Total Fat 9g", "Saturated Fat 4.5g" are non-informative label noise — filtered out
         Assert.DoesNotContain(result.Ingredients,
             i => i.Name.Contains("Total Fat", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(result.Ingredients,
             i => i.Name.Contains("Saturated Fat", StringComparison.OrdinalIgnoreCase));
-        Assert.DoesNotContain(result.Ingredients,
+
+        // Cholesterol and Sodium are recognized nutritional components
+        Assert.Contains(result.Ingredients,
             i => i.Name.Contains("Cholesterol", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.Ingredients,
+            i => i.Name.Contains("Sodium", StringComparison.OrdinalIgnoreCase));
     }
 
     // ── Unrecognised text should NOT appear as ingredients ──
@@ -452,7 +455,6 @@ public class OpenAiIngredientAnalyzerTests
     [Theory]
     [InlineData("Total Fat 9g")]
     [InlineData("Saturated Fat 4.5g")]
-    [InlineData("Cholesterol 35mg")]
     [InlineData("Calories 200")]
     [InlineData("Amount Per Serving")]
     [InlineData("Nutrition Facts")]
@@ -535,22 +537,139 @@ public class OpenAiIngredientAnalyzerTests
 
         var result = await _analyzer.AnalyzeAsync(text, 30);
 
-        // Should NOT contain any nutrition label noise
+        // Should NOT contain structural noise or zero-quantity items
         Assert.DoesNotContain(result.Ingredients,
             i => i.Name.Contains("Total Fat", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(result.Ingredients,
             i => i.Name.Contains("Calories", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(result.Ingredients,
-            i => i.Name.Contains("Cholesterol", StringComparison.OrdinalIgnoreCase));
-        Assert.DoesNotContain(result.Ingredients,
             i => i.Name.Contains("Serving Size", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(result.Ingredients,
             i => i.Name.Contains("tells you", StringComparison.OrdinalIgnoreCase));
+        // Vitamin D 0mcg should be skipped (zero quantity)
+        Assert.DoesNotContain(result.Ingredients,
+            i => i.Name.Contains("Vitamin D", StringComparison.OrdinalIgnoreCase));
+
+        // Should contain recognised nutritional components
+        Assert.Contains(result.Ingredients,
+            i => i.Name.Contains("Cholesterol", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.Ingredients,
+            i => i.Name.Contains("Sodium", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.Ingredients,
+            i => i.Name.Contains("Carbohydrate", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.Ingredients,
+            i => i.Name.Contains("Protein", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.Ingredients,
+            i => i.Name.Contains("Calcium", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.Ingredients,
+            i => i.Name.Contains("Iron", StringComparison.OrdinalIgnoreCase));
 
         // Should contain the real ingredients
         Assert.Contains(result.Ingredients,
             i => i.Name.Contains("flour", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(result.Ingredients,
             i => i.Name.Contains("sugar", StringComparison.OrdinalIgnoreCase));
+    }
+
+    // ── Nutritional components should be extracted ──
+
+    [Fact]
+    public async Task AnalyzeAsync_RealLabel_ExtractsSodiumPotassiumCarbohydrate()
+    {
+        // Exact OCR text from user's real nutrition label
+        var text = "Nutrition Facts\n" +
+                   "4 servings per container\n" +
+                   "Serving size 1 cup (2279g)\n" +
+                   "Amount per serving\n" +
+                   "Calories 280\n" +
+                   "Total Fat 99 12%\n" +
+                   "Saturated Fat 4.5g 23%\n" +
+                   "Trans Fat 0g\n" +
+                   "Cholesterol 35mg 12%\n" +
+                   "Sodium850mg 37%\n" +
+                   "Total Carbohydrate 34g 12%\n" +
+                   "Dietary Fiber 4g 14%\n" +
+                   "Total Sugars 6g\n" +
+                   "Includes 0g Added Sugars 0%\n" +
+                   "Protein 15g\n" +
+                   "Vitamin D Omcg\n" +
+                   "Calcium 320mg\n" +
+                   "Iron 1.6mg\n" +
+                   "Potassium 510mg\n" +
+                   "* The % Daily Value (DV) tells you how much a nutrient in\n" +
+                   "aserving of food contributes to a daily diet. 2,000 calories\n" +
+                   "aday is used for general nutrition advice.";
+
+        var result = await _analyzer.AnalyzeAsync(text, 30);
+
+        // Should extract meaningful nutritional components
+        Assert.Contains(result.Ingredients,
+            i => i.Name.Contains("Sodium", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.Ingredients,
+            i => i.Name.Contains("Potassium", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.Ingredients,
+            i => i.Name.Contains("Carbohydrate", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.Ingredients,
+            i => i.Name.Contains("Cholesterol", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.Ingredients,
+            i => i.Name.Contains("Protein", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.Ingredients,
+            i => i.Name.Contains("Iron", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.Ingredients,
+            i => i.Name.Contains("Calcium", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.Ingredients,
+            i => i.Name.Contains("Fiber", StringComparison.OrdinalIgnoreCase));
+
+        // Should NOT extract Vitamin D (zero quantity — OCR reads "Omcg" as 0mcg)
+        // Note: OCR reads "Omcg" not "0mcg" — this is a letter O, but the analyzer
+        // should still handle it gracefully (either skip or not flag as meaningful)
+    }
+
+    [Theory]
+    [InlineData("Vitamin D 0mcg")]
+    [InlineData("Vitamin D 0 mcg")]
+    [InlineData("Vitamin D 0.0mcg")]
+    public async Task AnalyzeAsync_VitaminDZeroQuantity_IsSkipped(string input)
+    {
+        var result = await _analyzer.AnalyzeAsync(input, 30);
+
+        // Zero-quantity vitamins should be skipped entirely
+        Assert.Empty(result.Ingredients);
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_Potassium510mg_ClassifiedAsGood()
+    {
+        var result = await _analyzer.AnalyzeAsync("Potassium 510mg", 30);
+
+        var detail = Assert.Single(result.Ingredients);
+        Assert.Equal("Good", detail.Status);
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_TotalCarbohydrate34g_ClassifiedAsGood()
+    {
+        var result = await _analyzer.AnalyzeAsync("Total Carbohydrate 34g", 30);
+
+        var detail = Assert.Single(result.Ingredients);
+        Assert.Equal("Good", detail.Status);
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_Cholesterol35mg_ClassifiedAsNeutral()
+    {
+        var result = await _analyzer.AnalyzeAsync("Cholesterol 35mg", 30);
+
+        var detail = Assert.Single(result.Ingredients);
+        Assert.Equal("Neutral", detail.Status);
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_DietaryFiber4g_ClassifiedAsGood()
+    {
+        var result = await _analyzer.AnalyzeAsync("Dietary Fiber 4g", 30);
+
+        var detail = Assert.Single(result.Ingredients);
+        Assert.Equal("Good", detail.Status);
     }
 }

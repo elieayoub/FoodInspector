@@ -146,13 +146,15 @@ Consider the user's age when evaluating risk: children, teens, adults, and elder
         ["salt"] = ("Neutral", "Essential but excess raises blood pressure."),
         ["sodium"] = ("Neutral", "Essential but excess raises blood pressure."),
         ["caffeine"] = ("Neutral", "Safe for most adults; avoid for children and elderly in large amounts."),
+        ["cholesterol"] = ("Neutral", "Needed by the body but excess linked to heart disease."),
     };
 
     private static readonly HashSet<string> GoodKeywords = new(StringComparer.OrdinalIgnoreCase)
     {
         "whole grain", "oats", "olive oil", "flaxseed", "chia", "quinoa",
         "vitamin", "iron", "calcium", "fiber", "protein", "omega-3",
-        "turmeric", "green tea", "honey", "coconut oil", "avocado oil"
+        "turmeric", "green tea", "honey", "coconut oil", "avocado oil",
+        "potassium", "dietary fiber", "carbohydrate"
     };
 
     /// <summary>
@@ -213,8 +215,11 @@ Consider the user's age when evaluating risk: children, teens, adults, and elder
             // (e.g. "The % Daily Value (DV) tells you how much a nutrient in")
             if (IsDescriptiveText(item)) continue;
 
-            // Skip nutrition label structural text (e.g. "Total Fat 9g", "Calories 200")
+            // Skip nutrition label structural text (e.g. "Calories 200", "Serving Size")
             if (IsNutritionLabelNoise(item)) continue;
+
+            // Skip any item whose quantity is zero (e.g. "Vitamin D 0mcg", "Trans Fat 0g")
+            if (HasZeroQuantity(item)) continue;
 
             var matched = false;
 
@@ -222,10 +227,6 @@ Consider the user's age when evaluating risk: children, teens, adults, and elder
             {
                 if (item.Contains(kvp.Key, StringComparison.OrdinalIgnoreCase))
                 {
-                    // Skip ingredients whose quantity is zero (e.g. "Trans Fat 0g", "Sodium 0 mg", "Sugar 0%")
-                    if (HasZeroQuantity(item))
-                        break;
-
                     var reason = kvp.Value.Reason;
 
                     // Age-specific adjustments
@@ -359,8 +360,8 @@ Consider the user's age when evaluating risk: children, teens, adults, and elder
 
     private static readonly Regex _nutritionLabelNoisePattern = new(
         @"(?i)^(" +
-        @"total\s+fat|saturated\s+fat|total\s+carb|dietary\s+fiber|total\s+sugars?|added\s+sugars?" +
-        @"|cholesterol|calories|amount\s+per|servings?\s+per|serving\s+size" +
+        @"total\s+fat|saturated\s+fat|total\s+sugars?|added\s+sugars?" +
+        @"|calories|amount\s+per|servings?\s+per|serving\s+size" +
         @"|nutrition\s+facts|net\s+wt|net\s+weight|ingredients\s*:" +
         @"|daily\s+value|best\s+by|use\s+by|manufactured|distributed|contains:" +
         @")\b",
