@@ -155,6 +155,36 @@ Consider the user's age when evaluating risk: children, teens, adults, and elder
         "turmeric", "green tea", "honey", "coconut oil", "avocado oil"
     };
 
+    /// <summary>
+    /// Common food ingredients that are safe/neutral but not covered by
+    /// KnownBad or GoodKeywords. Only items matching a known list are
+    /// included in the analysis — unrecognised OCR text is skipped.
+    /// </summary>
+    private static readonly HashSet<string> KnownNeutral = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "flour", "wheat flour", "enriched flour", "all-purpose flour",
+        "water", "milk", "cream", "butter", "eggs", "egg",
+        "corn starch", "cornstarch", "starch", "modified starch",
+        "yeast", "baking soda", "baking powder", "gelatin",
+        "soy lecithin", "lecithin", "soybean oil", "canola oil",
+        "sunflower oil", "vegetable oil", "corn oil", "peanut oil",
+        "rice", "rice flour", "potato starch",
+        "vinegar", "citric acid", "lactic acid", "ascorbic acid",
+        "xanthan gum", "guar gum", "cellulose gum", "pectin",
+        "cocoa", "cocoa butter", "chocolate", "vanilla", "vanilla extract",
+        "cinnamon", "pepper", "garlic", "onion", "ginger", "paprika",
+        "mustard", "soy sauce", "worcestershire",
+        "tomato", "tomato paste", "corn syrup",
+        "whey", "casein", "skim milk", "nonfat milk",
+        "dextrose", "maltodextrin", "fructose", "glucose",
+        "glycerin", "sorbitol",
+        "natural flavor", "natural flavors", "artificial flavor", "artificial flavors",
+        "spices", "herbs", "seasoning",
+        "monoglycerides", "diglycerides", "polysorbate",
+        "sodium bicarbonate", "potassium sorbate", "sodium benzoate",
+        "annatto", "beta carotene", "caramel color",
+    };
+
     private IngredientAnalysis FallbackAnalyze(string ingredientsText, int userAge)
     {
         var items = ingredientsText
@@ -182,6 +212,9 @@ Consider the user's age when evaluating risk: children, teens, adults, and elder
             // Skip descriptive text / disclaimers that OCR picked up
             // (e.g. "The % Daily Value (DV) tells you how much a nutrient in")
             if (IsDescriptiveText(item)) continue;
+
+            // Skip nutrition label structural text (e.g. "Total Fat 9g", "Calories 200")
+            if (IsNutritionLabelNoise(item)) continue;
 
             var matched = false;
 
@@ -231,7 +264,15 @@ Consider the user's age when evaluating risk: children, teens, adults, and elder
                 }
                 else
                 {
-                    details.Add(new IngredientDetail { Name = item, Status = "Neutral", Reason = "Common ingredient – no major concerns in normal amounts." });
+                    // Only add items that match a known neutral ingredient.
+                    // Unrecognised text (OCR noise, label structure, paragraphs) is skipped.
+                    var isKnownNeutral = KnownNeutral.Any(n => item.Contains(n, StringComparison.OrdinalIgnoreCase)
+                        || n.Contains(item, StringComparison.OrdinalIgnoreCase));
+                    if (isKnownNeutral)
+                    {
+                        details.Add(new IngredientDetail { Name = item, Status = "Neutral", Reason = "Common ingredient – no major concerns in normal amounts." });
+                    }
+                    // else: not a recognised ingredient — skip (OCR noise / label text)
                 }
             }
         }
@@ -306,6 +347,24 @@ Consider the user's age when evaluating risk: children, teens, adults, and elder
 
         return false;
     }
+
+    /// <summary>
+    /// Returns true when the text matches common nutrition label structural entries
+    /// that are NOT ingredients (e.g. "Total Fat 9g", "Calories 200", "Amount Per Serving").
+    /// </summary>
+    private static bool IsNutritionLabelNoise(string text)
+    {
+        return _nutritionLabelNoisePattern.IsMatch(text);
+    }
+
+    private static readonly Regex _nutritionLabelNoisePattern = new(
+        @"(?i)^(" +
+        @"total\s+fat|saturated\s+fat|total\s+carb|dietary\s+fiber|total\s+sugars?|added\s+sugars?" +
+        @"|cholesterol|calories|amount\s+per|servings?\s+per|serving\s+size" +
+        @"|nutrition\s+facts|net\s+wt|net\s+weight|ingredients\s*:" +
+        @"|daily\s+value|best\s+by|use\s+by|manufactured|distributed|contains:" +
+        @")\b",
+        RegexOptions.Compiled);
 
     private static readonly HashSet<string> _sentenceIndicators = new(StringComparer.OrdinalIgnoreCase)
     {

@@ -350,10 +350,17 @@ public class OpenAiIngredientAnalyzerTests
     {
         var result = await _analyzer.AnalyzeAsync(ingredient, 30);
 
-        var detail = Assert.Single(result.Ingredients);
-        // A zero-quantity ingredient should be treated as Neutral (unknown),
-        // not classified via the KnownBad dictionary
-        Assert.NotEqual("Bad", detail.Status);
+        // Zero-quantity items from nutrition labels should be skipped entirely
+        // (they are label measurements, not ingredients)
+        if (result.Ingredients.Count == 0)
+        {
+            Assert.Empty(result.Ingredients);
+        }
+        else
+        {
+            var detail = Assert.Single(result.Ingredients);
+            Assert.NotEqual("Bad", detail.Status);
+        }
     }
 
     [Fact]
@@ -397,15 +404,16 @@ public class OpenAiIngredientAnalyzerTests
     [Fact]
     public async Task AnalyzeAsync_MixOfZeroAndNonZero_OnlyNonZeroCounted()
     {
-        // Trans Fat 0g should be ignored, but aspartame (no quantity) should be Bad
+        // Trans Fat 0g should be ignored entirely (not a recognized ingredient
+        // at zero quantity), aspartame should be Bad, flour is a known neutral
         var result = await _analyzer.AnalyzeAsync("Trans Fat 0g, aspartame, flour", 30);
 
         Assert.Equal("Caution", result.OverallVerdict);
 
+        // Trans Fat 0g should be skipped entirely (nutrition label noise at zero qty)
         var transFat = result.Ingredients
             .FirstOrDefault(i => i.Name.Contains("Trans Fat", StringComparison.OrdinalIgnoreCase));
-        Assert.NotNull(transFat);
-        Assert.NotEqual("Bad", transFat!.Status);
+        Assert.Null(transFat);
 
         var aspartame = result.Ingredients
             .FirstOrDefault(i => i.Name.Contains("aspartame", StringComparison.OrdinalIgnoreCase));
@@ -428,5 +436,121 @@ public class OpenAiIngredientAnalyzerTests
         {
             Assert.NotEqual("Bad", transFat.Status);
         }
+
+        // "Total Fat 9g", "Saturated Fat 4.5g", "Cholesterol 35mg" are nutrition
+        // label structural text, not ingredients — they should be filtered out
+        Assert.DoesNotContain(result.Ingredients,
+            i => i.Name.Contains("Total Fat", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(result.Ingredients,
+            i => i.Name.Contains("Saturated Fat", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(result.Ingredients,
+            i => i.Name.Contains("Cholesterol", StringComparison.OrdinalIgnoreCase));
+    }
+
+    // ── Unrecognised text should NOT appear as ingredients ──
+
+    [Theory]
+    [InlineData("Total Fat 9g")]
+    [InlineData("Saturated Fat 4.5g")]
+    [InlineData("Cholesterol 35mg")]
+    [InlineData("Calories 200")]
+    [InlineData("Amount Per Serving")]
+    [InlineData("Nutrition Facts")]
+    [InlineData("Serving Size 1 cup")]
+    [InlineData("Daily Value")]
+    public async Task AnalyzeAsync_NutritionLabelNoise_IsFilteredOut(string noise)
+    {
+        var result = await _analyzer.AnalyzeAsync(noise, 30);
+
+        Assert.Empty(result.Ingredients);
+    }
+
+    [Theory]
+    [InlineData("abc123")]
+    [InlineData("XKCD")]
+    [InlineData("1234")]
+    [InlineData("NET WT")]
+    public async Task AnalyzeAsync_RandomOcrNoise_IsNotAddedAsIngredient(string noise)
+    {
+        var result = await _analyzer.AnalyzeAsync(noise, 30);
+
+        Assert.Empty(result.Ingredients);
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_MixOfRealIngredientsAndNoise_OnlyIncludesRealIngredients()
+    {
+        var text = "flour, sugar, Total Fat 9g, Calories 200, olive oil, some random text";
+
+        var result = await _analyzer.AnalyzeAsync(text, 30);
+
+        // Should include flour (KnownNeutral), sugar (KnownBad/Neutral), olive oil (Good)
+        // Should NOT include "Total Fat 9g", "Calories 200", "some random text"
+        Assert.DoesNotContain(result.Ingredients,
+            i => i.Name.Contains("Total Fat", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(result.Ingredients,
+            i => i.Name.Contains("Calories", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(result.Ingredients,
+            i => i.Name.Contains("random", StringComparison.OrdinalIgnoreCase));
+
+        Assert.Contains(result.Ingredients,
+            i => i.Name.Contains("flour", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.Ingredients,
+            i => i.Name.Contains("sugar", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.Ingredients,
+            i => i.Name.Contains("olive oil", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_KnownNeutralIngredients_AreRecognised()
+    {
+        var result = await _analyzer.AnalyzeAsync("flour, water, xanthan gum, vanilla extract", 30);
+
+        Assert.Equal(4, result.Ingredients.Count);
+        Assert.All(result.Ingredients, i => Assert.Equal("Neutral", i.Status));
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_FullNutritionLabel_OnlyIncludesRealIngredients()
+    {
+        // Simulates typical OCR output from a nutrition label
+        var text = "Nutrition Facts\n" +
+                   "Serving Size 1 cup\n" +
+                   "Calories 200\n" +
+                   "Total Fat 9g\n" +
+                   "Saturated Fat 4.5g\n" +
+                   "Trans Fat 0g\n" +
+                   "Cholesterol 35mg\n" +
+                   "Sodium 850mg\n" +
+                   "Total Carbohydrate 25g\n" +
+                   "Dietary Fiber 3g\n" +
+                   "Total Sugars 12g\n" +
+                   "Protein 15g\n" +
+                   "Vitamin D 0mcg\n" +
+                   "Calcium 320mg\n" +
+                   "Iron 1.6mg\n" +
+                   "INGREDIENTS: flour, sugar, salt, butter, vanilla extract\n" +
+                   "* The % Daily Value tells you how much a nutrient in\n" +
+                   "a serving of food contributes to a daily diet.";
+
+        var result = await _analyzer.AnalyzeAsync(text, 30);
+
+        // Should NOT contain any nutrition label noise
+        Assert.DoesNotContain(result.Ingredients,
+            i => i.Name.Contains("Total Fat", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(result.Ingredients,
+            i => i.Name.Contains("Calories", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(result.Ingredients,
+            i => i.Name.Contains("Cholesterol", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(result.Ingredients,
+            i => i.Name.Contains("Serving Size", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(result.Ingredients,
+            i => i.Name.Contains("tells you", StringComparison.OrdinalIgnoreCase));
+
+        // Should contain the real ingredients
+        Assert.Contains(result.Ingredients,
+            i => i.Name.Contains("flour", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.Ingredients,
+            i => i.Name.Contains("sugar", StringComparison.OrdinalIgnoreCase));
     }
 }
