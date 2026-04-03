@@ -37,6 +37,22 @@ public class DashboardController : Controller
         var analyses = DeserializeAnalyses(todayLogs);
         var dailySummary = _intakeService.CalculateDailySummary(analyses, userAge, today);
 
+        // Aggregate ingredient totals across all meals today
+        var ingredientTotals = analyses
+            .SelectMany(a => a.Ingredients)
+            .GroupBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new IngredientTotal
+            {
+                Name = g.Key,
+                Count = g.Count(),
+                WorstStatus = g.Any(i => i.Status == "Bad") ? "Bad"
+                    : g.Any(i => i.Status == "Neutral") ? "Neutral" : "Good"
+            })
+            .OrderByDescending(t => t.WorstStatus == "Bad")
+            .ThenByDescending(t => t.WorstStatus == "Neutral")
+            .ThenByDescending(t => t.Count)
+            .ToList();
+
         var vm = new DashboardViewModel
         {
             UserName = userName,
@@ -56,7 +72,8 @@ public class DashboardController : Controller
                     EatenAt = f.EatenAt,
                     Ingredients = analysis?.Ingredients ?? new()
                 };
-            }).ToList()
+            }).ToList(),
+            IngredientTotals = ingredientTotals
         };
 
         return View(vm);

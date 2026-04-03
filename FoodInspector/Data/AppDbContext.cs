@@ -10,6 +10,7 @@ public class AppDbContext : DbContext
     public DbSet<AppUser> Users => Set<AppUser>();
     public DbSet<ScanResult> ScanResults => Set<ScanResult>();
     public DbSet<FoodLog> FoodLogs => Set<FoodLog>();
+    public DbSet<CustomIngredient> CustomIngredients => Set<CustomIngredient>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -32,6 +33,14 @@ public class AppDbContext : DbContext
             e.HasKey(f => f.Id);
             e.HasOne(f => f.User).WithMany().HasForeignKey(f => f.UserId);
             e.HasOne(f => f.ScanResult).WithMany().HasForeignKey(f => f.ScanResultId);
+        });
+
+        modelBuilder.Entity<CustomIngredient>(e =>
+        {
+            e.HasKey(c => c.Id);
+            e.Property(c => c.Name).IsRequired().HasMaxLength(200);
+            e.HasOne(c => c.User).WithMany().HasForeignKey(c => c.UserId);
+            e.HasIndex(c => new { c.UserId, c.Name }).IsUnique();
         });
     }
 }

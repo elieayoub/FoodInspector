@@ -3,8 +3,11 @@
     ViewData["Title"] = "Today's Health";
 }
 
-<div class="row justify-content-center">
-    <div class="col-12 col-md-8 col-lg-6">
+<div class="row">
+    <!-- Main content column -->
+    <div class="col-12 col-lg-8">
+        <div class="row justify-content-center">
+            <div class="col-12 col-md-10">
 
         @if (TempData["Success"] != null)
         {
@@ -129,5 +132,62 @@
             </a>
         </div>
 
+            </div>
+        </div>
+    </div>
+
+    <!-- Ingredient Totals — sticky side card -->
+    <div class="col-12 col-lg-4">
+        <div class="card shadow border-primary" style="position: sticky; top: 1rem; max-height: calc(100vh - 2rem); display: flex; flex-direction: column;">
+            <div class="card-header bg-primary text-white text-center">
+                <i class="bi bi-clipboard-data"></i> <strong>Today's Ingredient Totals</strong>
+            </div>
+            <div class="card-body p-0" style="overflow-y: auto; flex: 1;">
+                @if (!Model.IngredientTotals.Any())
+                {
+                    <div class="text-center text-muted py-5">
+                        <i class="bi bi-inbox" style="font-size:2rem;"></i>
+                        <p class="mt-2 mb-0">No ingredients logged yet today.</p>
+                    </div>
+                }
+                else
+                {
+                    <table class="table table-sm table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Ingredient</th>
+                                <th class="text-center">Count</th>
+                                <th class="text-center">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var total in Model.IngredientTotals)
+                            {
+                                var rowClass = total.WorstStatus switch
+                                {
+                                    "Bad" => "table-danger",
+                                    "Good" => "table-success",
+                                    _ => ""
+                                };
+                                var badgeClass = total.WorstStatus switch
+                                {
+                                    "Bad" => "bg-danger",
+                                    "Good" => "bg-success",
+                                    _ => "bg-secondary"
+                                };
+                                <tr class="@rowClass">
+                                    <td class="text-truncate" style="max-width: 160px;" title="@total.Name">@total.Name</td>
+                                    <td class="text-center fw-bold">@total.Count</td>
+                                    <td class="text-center"><span class="badge @badgeClass">@total.WorstStatus</span></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                    <div class="card-footer text-center text-muted small py-2">
+                        @Model.IngredientTotals.Count ingredient(s) across @Model.DailySummary.TotalMeals meal(s)
+                    </div>
+                }
+            </div>
+        </div>
     </div>
 </div>

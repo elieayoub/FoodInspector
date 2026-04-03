@@ -76,8 +76,13 @@ public class ScanController : Controller
                 return View("Index", vm);
             }
 
+            // Load user's custom ingredients for the fallback engine
+            var customIngredients = await _db.CustomIngredients
+                .Where(c => c.UserId == userId.Value)
+                .ToListAsync();
+
             // Analyse
-            var analysis = await _analyzer.AnalyzeAsync(extractedText, userAge);
+            var analysis = await _analyzer.AnalyzeAsync(extractedText, userAge, customIngredients);
 
             // Persist
             var scanResult = new ScanResult
@@ -126,7 +131,12 @@ public class ScanController : Controller
             return View("Result", vm);
         }
 
-        var analysis = await _analyzer.AnalyzeAsync(extractedText, userAge);
+        // Load user's custom ingredients for the fallback engine
+        var customIngredients = await _db.CustomIngredients
+            .Where(c => c.UserId == userId.Value)
+            .ToListAsync();
+
+        var analysis = await _analyzer.AnalyzeAsync(extractedText, userAge, customIngredients);
 
         // Persist the updated scan
         var scanResult = new ScanResult
@@ -172,6 +182,86 @@ public class ScanController : Controller
 
         TempData["Success"] = "Food logged! Check your daily dashboard for health status.";
         return RedirectToAction("Today", "Dashboard");
+    }
+
+    [HttpPost]
+    public async Task<IActionResult> AddIngredient(
+        [FromForm] int scanResultId,
+        [FromForm] string ingredientName,
+        [FromForm] string ingredientStatus,
+        [FromForm] string ingredientReason,
+        [FromForm] string? imageData)
+    {
+        var userId = HttpContext.Session.GetInt32("UserId");
+        if (userId == null)
+            return RedirectToAction("Register", "Account");
+
+        var userName = HttpContext.Session.GetString("UserName") ?? "";
+        var userAge = HttpContext.Session.GetInt32("UserAge") ?? 25;
+
+        if (string.IsNullOrWhiteSpace(ingredientName))
+        {
+            TempData["Error"] = "Ingredient name is required.";
+            return RedirectToAction("Index");
+        }
+
+        // Validate status
+        if (ingredientStatus is not ("Good" or "Neutral" or "Bad"))
+            ingredientStatus = "Neutral";
+
+        // Save custom ingredient if it doesn't already exist for this user
+        var existing = await _db.CustomIngredients.FirstOrDefaultAsync(
+            c => c.UserId == userId.Value && c.Name.ToLower() == ingredientName.Trim().ToLower());
+        if (existing == null)
+        {
+            var custom = new CustomIngredient
+            {
+                UserId = userId.Value,
+                Name = ingredientName.Trim(),
+                Status = ingredientStatus,
+                Reason = string.IsNullOrWhiteSpace(ingredientReason) ? "User-defined ingredient." : ingredientReason.Trim()
+            };
+            _db.CustomIngredients.Add(custom);
+            await _db.SaveChangesAsync();
+        }
+        else
+        {
+            // Update existing custom ingredient
+            existing.Status = ingredientStatus;
+            existing.Reason = string.IsNullOrWhiteSpace(ingredientReason) ? existing.Reason : ingredientReason.Trim();
+            await _db.SaveChangesAsync();
+        }
+
+        // Re-run analysis on the scan result with custom ingredients
+        var scan = await _db.ScanResults.FirstOrDefaultAsync(s => s.Id == scanResultId && s.UserId == userId.Value);
+        if (scan == null)
+        {
+            TempData["Error"] = "Scan result not found.";
+            return RedirectToAction("Index");
+        }
+
+        var customIngredients = await _db.CustomIngredients
+            .Where(c => c.UserId == userId.Value)
+            .ToListAsync();
+
+        var analysis = await _analyzer.AnalyzeAsync(scan.ExtractedText, userAge, customIngredients);
+
+        // Update the scan result with the new analysis
+        scan.AnalysisJson = JsonSerializer.Serialize(analysis);
+        await _db.SaveChangesAsync();
+
+        var vm = new ScanViewModel
+        {
+            ScanResultId = scan.Id,
+            UserName = userName,
+            UserAge = userAge,
+            ImageBase64 = imageData,
+            ExtractedText = scan.ExtractedText,
+            Analysis = analysis
+        };
+
+        TempData["Success"] = $"Ingredient \"{ingredientName.Trim()}\" added and analysis updated!";
+        return View("Result", vm);
     }
 
     [HttpGet]

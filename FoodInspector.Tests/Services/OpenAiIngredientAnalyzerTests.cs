@@ -2,6 +2,7 @@ using Xunit;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Moq;
+using FoodInspector.Models;
 using FoodInspector.Services;
 
 namespace FoodInspector.Tests.Services;
@@ -671,5 +672,75 @@ public class OpenAiIngredientAnalyzerTests
 
         var detail = Assert.Single(result.Ingredients);
         Assert.Equal("Good", detail.Status);
+    }
+
+    // ── Custom ingredients ──
+
+    [Fact]
+    public async Task AnalyzeAsync_CustomIngredient_IsRecognised()
+    {
+        var custom = new List<CustomIngredient>
+        {
+            new() { UserId = 1, Name = "spirulina", Status = "Good", Reason = "Superfood algae rich in nutrients." }
+        };
+
+        var result = await _analyzer.AnalyzeAsync("spirulina", 30, custom);
+
+        var detail = Assert.Single(result.Ingredients);
+        Assert.Equal("Good", detail.Status);
+        Assert.Contains("Superfood", detail.Reason);
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_CustomBadIngredient_CountedAsBad()
+    {
+        var custom = new List<CustomIngredient>
+        {
+            new() { UserId = 1, Name = "tartrazine", Status = "Bad", Reason = "Synthetic dye." }
+        };
+
+        var result = await _analyzer.AnalyzeAsync("tartrazine", 30, custom);
+
+        var detail = Assert.Single(result.Ingredients);
+        Assert.Equal("Bad", detail.Status);
+        Assert.Equal("Caution", result.OverallVerdict);
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_CustomIngredientNotInText_NotAdded()
+    {
+        var custom = new List<CustomIngredient>
+        {
+            new() { UserId = 1, Name = "spirulina", Status = "Good", Reason = "Superfood." }
+        };
+
+        // "flour" is a known neutral, "spirulina" is not in the text
+        var result = await _analyzer.AnalyzeAsync("flour", 30, custom);
+
+        Assert.Single(result.Ingredients);
+        Assert.DoesNotContain(result.Ingredients, i => i.Name.Contains("spirulina", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_CustomIngredientDoesNotOverrideBuiltIn()
+    {
+        var custom = new List<CustomIngredient>
+        {
+            new() { UserId = 1, Name = "sugar", Status = "Good", Reason = "I like sugar." }
+        };
+
+        // Sugar is in KnownBad as Neutral — built-in should take precedence
+        var result = await _analyzer.AnalyzeAsync("sugar", 30, custom);
+
+        var detail = Assert.Single(result.Ingredients);
+        Assert.Equal("Neutral", detail.Status);
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_EmptyCustomList_WorksNormally()
+    {
+        var result = await _analyzer.AnalyzeAsync("flour, sugar", 30, new List<CustomIngredient>());
+
+        Assert.Equal(2, result.Ingredients.Count);
     }
 }

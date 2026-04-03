@@ -27,11 +27,16 @@ public class OpenAiIngredientAnalyzer : IIngredientAnalyzer
 
     public async Task<IngredientAnalysis> AnalyzeAsync(string ingredientsText, int userAge)
     {
+        return await AnalyzeAsync(ingredientsText, userAge, Array.Empty<CustomIngredient>());
+    }
+
+    public async Task<IngredientAnalysis> AnalyzeAsync(string ingredientsText, int userAge, IReadOnlyList<CustomIngredient> customIngredients)
+    {
         var apiKey = _cfg["OpenAI:ApiKey"];
         if (string.IsNullOrWhiteSpace(apiKey))
         {
             _log.LogWarning("No OpenAI API key configured – using built-in rule engine.");
-            return FallbackAnalyze(ingredientsText, userAge);
+            return FallbackAnalyze(ingredientsText, userAge, customIngredients);
         }
 
         return await CallOpenAiAsync(ingredientsText, userAge, apiKey);
@@ -187,7 +192,7 @@ Consider the user's age when evaluating risk: children, teens, adults, and elder
         "annatto", "beta carotene", "caramel color",
     };
 
-    private IngredientAnalysis FallbackAnalyze(string ingredientsText, int userAge)
+    private IngredientAnalysis FallbackAnalyze(string ingredientsText, int userAge, IReadOnlyList<CustomIngredient>? customIngredients = null)
     {
         var items = ingredientsText
             .Split(new[] { ',', '\n', ';', '•', '·' }, StringSplitOptions.RemoveEmptyEntries)
@@ -272,6 +277,19 @@ Consider the user's age when evaluating risk: children, teens, adults, and elder
                     if (isKnownNeutral)
                     {
                         details.Add(new IngredientDetail { Name = item, Status = "Neutral", Reason = "Common ingredient – no major concerns in normal amounts." });
+                    }
+                    else if (customIngredients != null)
+                    {
+                        // Check user-defined custom ingredients
+                        var custom = customIngredients.FirstOrDefault(c =>
+                            item.Contains(c.Name, StringComparison.OrdinalIgnoreCase)
+                            || c.Name.Contains(item, StringComparison.OrdinalIgnoreCase));
+                        if (custom != null)
+                        {
+                            if (custom.Status == "Bad") badCount++;
+                            else if (custom.Status == "Good") goodCount++;
+                            details.Add(new IngredientDetail { Name = item, Status = custom.Status, Reason = custom.Reason });
+                        }
                     }
                     // else: not a recognised ingredient — skip (OCR noise / label text)
                 }

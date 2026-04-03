@@ -8,6 +8,11 @@ public class DashboardViewModel
     public DailyIntakeSummary DailySummary { get; set; } = new();
     public List<FoodLogEntry> TodayFoodLogs { get; set; } = new();
     public List<DailyHealthRecord> HealthHistory { get; set; } = new();
+
+    /// <summary>
+    /// Aggregated ingredient totals consumed today (name → count + status).
+    /// </summary>
+    public List<IngredientTotal> IngredientTotals { get; set; } = new();
 }
 
 public class FoodLogEntry
@@ -28,4 +33,11 @@ public class DailyHealthRecord
     public bool IsHealthy { get; set; }
     public int AlertCount { get; set; }
     public int BadIngredientCount { get; set; }
+}
+
+public class IngredientTotal
+{
+    public string Name { get; set; } = string.Empty;
+    public int Count { get; set; }
+    public string WorstStatus { get; set; } = "Neutral";  // "Good", "Neutral", "Bad"
 }

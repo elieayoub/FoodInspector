@@ -310,4 +310,99 @@ public class DashboardControllerTests
         var model = Assert.IsType<DashboardViewModel>(viewResult.Model);
         Assert.Equal(30, model.HealthHistory.Count);
     }
+
+    // ── Ingredient Totals ──
+
+    [Fact]
+    public async Task Today_NoLogs_HasEmptyIngredientTotals()
+    {
+        var controller = CreateController();
+
+        var result = await controller.Today();
+
+        var viewResult = Assert.IsType<ViewResult>(result);
+        var model = Assert.IsType<DashboardViewModel>(viewResult.Model);
+        Assert.Empty(model.IngredientTotals);
+    }
+
+    [Fact]
+    public async Task Today_WithLogs_AggregatesIngredientTotals()
+    {
+        var db = DbHelper.CreateInMemoryContext();
+        var controller = new DashboardController(db, _intakeService);
+        SessionHelper.SetupSession(controller, userId: 1, userName: "Alice", userAge: 25);
+
+        var analysis = new IngredientAnalysis
+        {
+            OverallVerdict = "Caution",
+            Summary = "Watch out",
+            Ingredients = new List<IngredientDetail>
+            {
+                new() { Name = "sugar", Status = "Neutral", Reason = "OK" },
+                new() { Name = "flour", Status = "Neutral", Reason = "OK" },
+                new() { Name = "red 40", Status = "Bad", Reason = "Dye" }
+            }
+        };
+        var json = JsonSerializer.Serialize(analysis);
+
+        var scan = new ScanResult { UserId = 1, ExtractedText = "sugar, flour, red 40", AnalysisJson = json };
+        db.ScanResults.Add(scan);
+        await db.SaveChangesAsync();
+
+        // Two meals with the same ingredients
+        db.FoodLogs.Add(new FoodLog { UserId = 1, ScanResultId = scan.Id, ExtractedText = "sugar, flour, red 40", AnalysisJson = json, EatenAt = DateTime.UtcNow });
+        db.FoodLogs.Add(new FoodLog { UserId = 1, ScanResultId = scan.Id, ExtractedText = "sugar, flour, red 40", AnalysisJson = json, EatenAt = DateTime.UtcNow.AddHours(-2) });
+        await db.SaveChangesAsync();
+
+        var result = await controller.Today();
+
+        var viewResult = Assert.IsType<ViewResult>(result);
+        var model = Assert.IsType<DashboardViewModel>(viewResult.Model);
+
+        Assert.Equal(3, model.IngredientTotals.Count);
+
+        var sugarTotal = model.IngredientTotals.First(t => t.Name.Equals("sugar", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(2, sugarTotal.Count);
+        Assert.Equal("Neutral", sugarTotal.WorstStatus);
+
+        var dyeTotal = model.IngredientTotals.First(t => t.Name.Contains("red 40", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(2, dyeTotal.Count);
+        Assert.Equal("Bad", dyeTotal.WorstStatus);
+    }
+
+    [Fact]
+    public async Task Today_IngredientTotals_BadIngredientsSortedFirst()
+    {
+        var db = DbHelper.CreateInMemoryContext();
+        var controller = new DashboardController(db, _intakeService);
+        SessionHelper.SetupSession(controller, userId: 1, userName: "Alice", userAge: 25);
+
+        var analysis = new IngredientAnalysis
+        {
+            OverallVerdict = "Caution",
+            Summary = "Mixed",
+            Ingredients = new List<IngredientDetail>
+            {
+                new() { Name = "olive oil", Status = "Good", Reason = "Healthy" },
+                new() { Name = "aspartame", Status = "Bad", Reason = "Artificial" },
+                new() { Name = "flour", Status = "Neutral", Reason = "OK" }
+            }
+        };
+        var json = JsonSerializer.Serialize(analysis);
+
+        var scan = new ScanResult { UserId = 1, ExtractedText = "olive oil, aspartame, flour", AnalysisJson = json };
+        db.ScanResults.Add(scan);
+        await db.SaveChangesAsync();
+
+        db.FoodLogs.Add(new FoodLog { UserId = 1, ScanResultId = scan.Id, ExtractedText = "olive oil, aspartame, flour", AnalysisJson = json, EatenAt = DateTime.UtcNow });
+        await db.SaveChangesAsync();
+
+        var result = await controller.Today();
+
+        var viewResult = Assert.IsType<ViewResult>(result);
+        var model = Assert.IsType<DashboardViewModel>(viewResult.Model);
+
+        // Bad ingredients should appear first
+        Assert.Equal("Bad", model.IngredientTotals[0].WorstStatus);
+    }
 }

@@ -133,7 +133,7 @@ public class ScanControllerTests
             }
         };
 
-        _mockAnalyzer.Setup(a => a.AnalyzeAsync("sugar, flour, salt", 25))
+        _mockAnalyzer.Setup(a => a.AnalyzeAsync("sugar, flour, salt", 25, It.IsAny<IReadOnlyList<CustomIngredient>>()))
             .ReturnsAsync(expectedAnalysis);
 
         var result = await controller.Analyze(imageBase64);
@@ -165,7 +165,7 @@ public class ScanControllerTests
         _mockOcr.Setup(o => o.ExtractTextAsync(It.IsAny<byte[]>()))
             .ReturnsAsync("flour");
 
-        _mockAnalyzer.Setup(a => a.AnalyzeAsync("flour", 25))
+        _mockAnalyzer.Setup(a => a.AnalyzeAsync("flour", 25, It.IsAny<IReadOnlyList<CustomIngredient>>()))
             .ReturnsAsync(new IngredientAnalysis
             {
                 OverallVerdict = "Buy",
@@ -364,7 +364,7 @@ public class ScanControllerTests
             }
         };
 
-        _mockAnalyzer.Setup(a => a.AnalyzeAsync(updatedText, 25))
+        _mockAnalyzer.Setup(a => a.AnalyzeAsync(updatedText, 25, It.IsAny<IReadOnlyList<CustomIngredient>>()))
             .ReturnsAsync(expectedAnalysis);
 
         var result = await controller.Reanalyze(updatedText, "data:image/png;base64,abc123");
@@ -387,7 +387,7 @@ public class ScanControllerTests
         SessionHelper.SetupSession(controller, userId: 1, userName: "Alice", userAge: 25);
 
         var updatedText = "vitamin c, iron";
-        _mockAnalyzer.Setup(a => a.AnalyzeAsync(updatedText, 25))
+        _mockAnalyzer.Setup(a => a.AnalyzeAsync(updatedText, 25, It.IsAny<IReadOnlyList<CustomIngredient>>()))
             .ReturnsAsync(new IngredientAnalysis
             {
                 OverallVerdict = "Buy",
@@ -414,7 +414,7 @@ public class ScanControllerTests
         var controller = new ScanController(_mockOcr.Object, _mockAnalyzer.Object, db);
         SessionHelper.SetupSession(controller, userId: 1, userName: "Bob", userAge: 30);
 
-        _mockAnalyzer.Setup(a => a.AnalyzeAsync(It.IsAny<string>(), 30))
+        _mockAnalyzer.Setup(a => a.AnalyzeAsync(It.IsAny<string>(), 30, It.IsAny<IReadOnlyList<CustomIngredient>>()))
             .ReturnsAsync(new IngredientAnalysis
             {
                 OverallVerdict = "Buy",
@@ -437,7 +437,7 @@ public class ScanControllerTests
         var controller = new ScanController(_mockOcr.Object, _mockAnalyzer.Object, db);
         SessionHelper.SetupSession(controller, userId: 1, userName: "Alice", userAge: 25);
 
-        _mockAnalyzer.Setup(a => a.AnalyzeAsync(It.IsAny<string>(), 25))
+        _mockAnalyzer.Setup(a => a.AnalyzeAsync(It.IsAny<string>(), 25, It.IsAny<IReadOnlyList<CustomIngredient>>()))
             .ReturnsAsync(new IngredientAnalysis
             {
                 OverallVerdict = "Buy",
@@ -459,7 +459,7 @@ public class ScanControllerTests
         var controller = new ScanController(_mockOcr.Object, _mockAnalyzer.Object, db);
         SessionHelper.SetupSession(controller, userId: 1, userName: "Child", userAge: 8);
 
-        _mockAnalyzer.Setup(a => a.AnalyzeAsync("caffeine", 8))
+        _mockAnalyzer.Setup(a => a.AnalyzeAsync("caffeine", 8, It.IsAny<IReadOnlyList<CustomIngredient>>()))
             .ReturnsAsync(new IngredientAnalysis
             {
                 OverallVerdict = "Avoid",
@@ -476,7 +476,7 @@ public class ScanControllerTests
         var model = Assert.IsType<ScanViewModel>(viewResult.Model);
         Assert.Equal("Avoid", model.Analysis!.OverallVerdict);
 
-        _mockAnalyzer.Verify(a => a.AnalyzeAsync("caffeine", 8), Times.Once);
+        _mockAnalyzer.Verify(a => a.AnalyzeAsync("caffeine", 8, It.IsAny<IReadOnlyList<CustomIngredient>>()), Times.Once);
     }
 
     // ── POST IAteThat ──
@@ -572,7 +572,7 @@ public class ScanControllerTests
         _mockOcr.Setup(o => o.ExtractTextAsync(It.IsAny<byte[]>()))
             .ReturnsAsync("flour");
 
-        _mockAnalyzer.Setup(a => a.AnalyzeAsync("flour", 25))
+        _mockAnalyzer.Setup(a => a.AnalyzeAsync("flour", 25, It.IsAny<IReadOnlyList<CustomIngredient>>()))
             .ReturnsAsync(new IngredientAnalysis
             {
                 OverallVerdict = "Buy",
@@ -589,6 +589,174 @@ public class ScanControllerTests
         var model = Assert.IsType<ScanViewModel>(viewResult.Model);
         Assert.NotNull(model.ScanResultId);
         Assert.True(model.ScanResultId > 0);
+    }
+
+    // ── POST AddIngredient ──
+
+    [Fact]
+    public async Task AddIngredient_NoSession_RedirectsToRegister()
+    {
+        var controller = CreateController(withSession: false);
+
+        var result = await controller.AddIngredient(1, "turmeric", "Good", "Anti-inflammatory", null);
+
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("Register", redirect.ActionName);
+        Assert.Equal("Account", redirect.ControllerName);
+    }
+
+    [Fact]
+    public async Task AddIngredient_EmptyName_RedirectsToIndex()
+    {
+        var controller = CreateController();
+        controller.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(
+            controller.HttpContext, new TestTempDataProvider());
+
+        var result = await controller.AddIngredient(1, "", "Good", "", null);
+
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("Index", redirect.ActionName);
+    }
+
+    [Fact]
+    public async Task AddIngredient_ValidIngredient_SavesCustomIngredientToDb()
+    {
+        var db = DbHelper.CreateInMemoryContext();
+        var controller = new ScanController(_mockOcr.Object, _mockAnalyzer.Object, db);
+        SessionHelper.SetupSession(controller, userId: 1, userName: "Alice", userAge: 25);
+        controller.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(
+            controller.HttpContext, new TestTempDataProvider());
+
+        // Seed a scan result
+        var scan = new ScanResult { UserId = 1, ExtractedText = "flour, turmeric", AnalysisJson = "{}" };
+        db.ScanResults.Add(scan);
+        await db.SaveChangesAsync();
+
+        _mockAnalyzer.Setup(a => a.AnalyzeAsync(It.IsAny<string>(), 25, It.IsAny<IReadOnlyList<CustomIngredient>>()))
+            .ReturnsAsync(new IngredientAnalysis
+            {
+                OverallVerdict = "Buy",
+                Summary = "OK",
+                Ingredients = new List<IngredientDetail>()
+            });
+
+        await controller.AddIngredient(scan.Id, "turmeric", "Good", "Anti-inflammatory spice", null);
+
+        var custom = Assert.Single(db.CustomIngredients);
+        Assert.Equal("turmeric", custom.Name);
+        Assert.Equal("Good", custom.Status);
+        Assert.Equal("Anti-inflammatory spice", custom.Reason);
+        Assert.Equal(1, custom.UserId);
+    }
+
+    [Fact]
+    public async Task AddIngredient_DuplicateName_UpdatesExisting()
+    {
+        var db = DbHelper.CreateInMemoryContext();
+        var controller = new ScanController(_mockOcr.Object, _mockAnalyzer.Object, db);
+        SessionHelper.SetupSession(controller, userId: 1, userName: "Alice", userAge: 25);
+        controller.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(
+            controller.HttpContext, new TestTempDataProvider());
+
+        // Pre-existing custom ingredient
+        db.CustomIngredients.Add(new CustomIngredient
+        {
+            UserId = 1, Name = "turmeric", Status = "Neutral", Reason = "Unknown"
+        });
+        var scan = new ScanResult { UserId = 1, ExtractedText = "turmeric", AnalysisJson = "{}" };
+        db.ScanResults.Add(scan);
+        await db.SaveChangesAsync();
+
+        _mockAnalyzer.Setup(a => a.AnalyzeAsync(It.IsAny<string>(), 25, It.IsAny<IReadOnlyList<CustomIngredient>>()))
+            .ReturnsAsync(new IngredientAnalysis
+            {
+                OverallVerdict = "Buy",
+                Summary = "OK",
+                Ingredients = new List<IngredientDetail>()
+            });
+
+        await controller.AddIngredient(scan.Id, "turmeric", "Good", "Anti-inflammatory", null);
+
+        var custom = Assert.Single(db.CustomIngredients);
+        Assert.Equal("Good", custom.Status);
+        Assert.Equal("Anti-inflammatory", custom.Reason);
+    }
+
+    [Fact]
+    public async Task AddIngredient_InvalidScanId_RedirectsToIndex()
+    {
+        var controller = CreateController();
+        controller.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(
+            controller.HttpContext, new TestTempDataProvider());
+
+        var result = await controller.AddIngredient(999, "turmeric", "Good", "", null);
+
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("Index", redirect.ActionName);
+    }
+
+    [Fact]
+    public async Task AddIngredient_RerunsAnalysisAndReturnsResultView()
+    {
+        var db = DbHelper.CreateInMemoryContext();
+        var controller = new ScanController(_mockOcr.Object, _mockAnalyzer.Object, db);
+        SessionHelper.SetupSession(controller, userId: 1, userName: "Alice", userAge: 25);
+        controller.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(
+            controller.HttpContext, new TestTempDataProvider());
+
+        var scan = new ScanResult { UserId = 1, ExtractedText = "flour, turmeric", AnalysisJson = "{}" };
+        db.ScanResults.Add(scan);
+        await db.SaveChangesAsync();
+
+        var updatedAnalysis = new IngredientAnalysis
+        {
+            OverallVerdict = "Buy",
+            Summary = "Healthy",
+            Ingredients = new List<IngredientDetail>
+            {
+                new() { Name = "flour", Status = "Neutral", Reason = "OK" },
+                new() { Name = "turmeric", Status = "Good", Reason = "Anti-inflammatory" }
+            }
+        };
+
+        _mockAnalyzer.Setup(a => a.AnalyzeAsync("flour, turmeric", 25, It.IsAny<IReadOnlyList<CustomIngredient>>()))
+            .ReturnsAsync(updatedAnalysis);
+
+        var result = await controller.AddIngredient(scan.Id, "turmeric", "Good", "Anti-inflammatory", null);
+
+        var viewResult = Assert.IsType<ViewResult>(result);
+        Assert.Equal("Result", viewResult.ViewName);
+
+        var model = Assert.IsType<ScanViewModel>(viewResult.Model);
+        Assert.Equal("Buy", model.Analysis!.OverallVerdict);
+        Assert.Equal(2, model.Analysis.Ingredients.Count);
+    }
+
+    [Fact]
+    public async Task AddIngredient_InvalidStatus_DefaultsToNeutral()
+    {
+        var db = DbHelper.CreateInMemoryContext();
+        var controller = new ScanController(_mockOcr.Object, _mockAnalyzer.Object, db);
+        SessionHelper.SetupSession(controller, userId: 1, userName: "Alice", userAge: 25);
+        controller.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(
+            controller.HttpContext, new TestTempDataProvider());
+
+        var scan = new ScanResult { UserId = 1, ExtractedText = "flour", AnalysisJson = "{}" };
+        db.ScanResults.Add(scan);
+        await db.SaveChangesAsync();
+
+        _mockAnalyzer.Setup(a => a.AnalyzeAsync(It.IsAny<string>(), 25, It.IsAny<IReadOnlyList<CustomIngredient>>()))
+            .ReturnsAsync(new IngredientAnalysis
+            {
+                OverallVerdict = "Buy",
+                Summary = "OK",
+                Ingredients = new List<IngredientDetail>()
+            });
+
+        await controller.AddIngredient(scan.Id, "turmeric", "InvalidStatus", "", null);
+
+        var custom = Assert.Single(db.CustomIngredients);
+        Assert.Equal("Neutral", custom.Status);
     }
 }
 
