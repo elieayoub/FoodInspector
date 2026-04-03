@@ -89,6 +89,7 @@ public class ScanController : Controller
             _db.ScanResults.Add(scanResult);
             await _db.SaveChangesAsync();
 
+            vm.ScanResultId = scanResult.Id;
             vm.ImageBase64 = imageData;
             vm.ExtractedText = extractedText;
             vm.Analysis = analysis;
@@ -137,10 +138,40 @@ public class ScanController : Controller
         _db.ScanResults.Add(scanResult);
         await _db.SaveChangesAsync();
 
+        vm.ScanResultId = scanResult.Id;
         vm.ExtractedText = extractedText;
         vm.Analysis = analysis;
 
         return View("Result", vm);
+    }
+
+    [HttpPost]
+    public async Task<IActionResult> IAteThat([FromForm] int scanResultId)
+    {
+        var userId = HttpContext.Session.GetInt32("UserId");
+        if (userId == null)
+            return RedirectToAction("Register", "Account");
+
+        var scan = await _db.ScanResults.FirstOrDefaultAsync(s => s.Id == scanResultId && s.UserId == userId.Value);
+        if (scan == null)
+        {
+            TempData["Error"] = "Scan result not found.";
+            return RedirectToAction("Index");
+        }
+
+        var foodLog = new FoodLog
+        {
+            UserId = userId.Value,
+            ScanResultId = scanResultId,
+            ExtractedText = scan.ExtractedText,
+            AnalysisJson = scan.AnalysisJson,
+            EatenAt = DateTime.UtcNow
+        };
+        _db.FoodLogs.Add(foodLog);
+        await _db.SaveChangesAsync();
+
+        TempData["Success"] = "Food logged! Check your daily dashboard for health status.";
+        return RedirectToAction("Today", "Dashboard");
     }
 
     [HttpGet]
@@ -158,6 +189,7 @@ public class ScanController : Controller
 
         var viewModels = results.Select(r => new ScanViewModel
         {
+            ScanResultId = r.Id,
             ExtractedText = r.ExtractedText,
             Analysis = string.IsNullOrWhiteSpace(r.AnalysisJson)
                 ? null

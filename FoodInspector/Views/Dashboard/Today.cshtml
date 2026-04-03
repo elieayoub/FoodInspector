@@ -1,0 +1,133 @@
+@model FoodInspector.Models.DashboardViewModel
+@{
+    ViewData["Title"] = "Today's Health";
+}
+
+<div class="row justify-content-center">
+    <div class="col-12 col-md-8 col-lg-6">
+
+        @if (TempData["Success"] != null)
+        {
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                <i class="bi bi-check-circle-fill"></i> @TempData["Success"]
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        }
+
+        <!-- Health Status Card -->
+        @{
+            var isHealthy = Model.DailySummary.IsHealthy;
+            var statusColor = isHealthy ? "success" : "danger";
+            var statusEmoji = isHealthy ? "💚" : "❤️‍🩹";
+            var statusText = isHealthy ? "You are healthy today!" : "Health alert — check your intake below";
+        }
+
+        <div class="card border-@statusColor shadow mb-3">
+            <div class="card-body text-center">
+                <div style="font-size:3rem;">@statusEmoji</div>
+                <h2 class="fw-bold text-@statusColor">
+                    @statusText
+                </h2>
+                <p class="text-muted mb-0">
+                    @Model.Date.ToString("dddd, MMMM d, yyyy") — @Model.DailySummary.TotalMeals meal(s) logged
+                </p>
+            </div>
+        </div>
+
+        <!-- Alerts -->
+        @if (Model.DailySummary.Alerts.Any())
+        {
+            <div class="card border-danger mb-3">
+                <div class="card-header bg-danger text-white">
+                    <i class="bi bi-exclamation-triangle-fill"></i> Daily Intake Alerts
+                </div>
+                <div class="card-body">
+                    @foreach (var alert in Model.DailySummary.Alerts)
+                    {
+                        <div class="alert alert-warning py-2 mb-2">@alert</div>
+                    }
+                </div>
+            </div>
+        }
+
+        <!-- Ingredient Accumulation -->
+        @if (Model.DailySummary.Accumulations.Any())
+        {
+            <h5 class="fw-bold mt-3"><i class="bi bi-bar-chart"></i> Daily Ingredient Intake</h5>
+            <div class="list-group mb-3">
+                @foreach (var acc in Model.DailySummary.Accumulations.OrderByDescending(a => a.Value.ExceedsLimit))
+                {
+                    var barColor = acc.Value.ExceedsLimit ? "danger" : "success";
+                    var pct = acc.Value.DailyLimitMax > 0
+                        ? Math.Min(100, (int)(acc.Value.Count / acc.Value.DailyLimitMax * 100))
+                        : (acc.Value.Count > 0 ? 100 : 0);
+
+                    <div class="list-group-item">
+                        <div class="d-flex justify-content-between mb-1">
+                            <strong class="text-capitalize">@acc.Key</strong>
+                            <span class="badge bg-@barColor rounded-pill">@acc.Value.Count / @acc.Value.DailyLimitMax</span>
+                        </div>
+                        <div class="progress" style="height: 8px;">
+                            <div class="progress-bar bg-@barColor" role="progressbar"
+                                 style="width: @(pct)%"></div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+
+        <!-- Today's Food Logs -->
+        <h5 class="fw-bold mt-3"><i class="bi bi-journal-text"></i> What You Ate Today</h5>
+        @if (!Model.TodayFoodLogs.Any())
+        {
+            <div class="text-center text-muted py-4">
+                <i class="bi bi-egg" style="font-size:2rem;"></i>
+                <p>No food logged today. Scan a product and tap "I Ate This"!</p>
+            </div>
+        }
+        else
+        {
+            <div class="list-group mb-3">
+                @foreach (var log in Model.TodayFoodLogs)
+                {
+                    var logColor = log.Verdict switch
+                    {
+                        "Buy" => "success",
+                        "Caution" => "warning",
+                        "Avoid" => "danger",
+                        _ => "secondary"
+                    };
+
+                    <div class="list-group-item border-start border-4 border-@logColor">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span class="badge bg-@logColor">@log.Verdict</span>
+                            <small class="text-muted">@log.EatenAt.ToString("HH:mm")</small>
+                        </div>
+                        <div class="d-flex flex-wrap gap-1 mt-1">
+                            @foreach (var ing in log.Ingredients.Take(6))
+                            {
+                                var bc = ing.Status == "Bad" ? "bg-danger" : ing.Status == "Good" ? "bg-success" : "bg-secondary";
+                                <span class="badge @bc">@ing.Name</span>
+                            }
+                            @if (log.Ingredients.Count > 6)
+                            {
+                                <span class="badge bg-light text-dark">+@(log.Ingredients.Count - 6) more</span>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+
+        <!-- Actions -->
+        <div class="d-flex gap-2 justify-content-center mb-4">
+            <a asp-controller="Scan" asp-action="Index" class="btn btn-success btn-lg">
+                <i class="bi bi-camera"></i> Scan Food
+            </a>
+            <a asp-controller="Dashboard" asp-action="HealthHistory" class="btn btn-outline-primary btn-lg">
+                <i class="bi bi-calendar-check"></i> Past Days
+            </a>
+        </div>
+
+    </div>
+</div>

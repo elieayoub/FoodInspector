@@ -14,6 +14,7 @@ builder.Services.AddDbContext<AppDbContext>(opt =>
 // Services
 builder.Services.AddSingleton<IOcrService, TesseractOcrService>();
 builder.Services.AddScoped<IIngredientAnalyzer, OpenAiIngredientAnalyzer>();
+builder.Services.AddSingleton<IDailyIntakeService, DailyIntakeService>();
 builder.Services.AddHttpClient();
 
 // Session (stores logged-in user)
@@ -51,6 +52,6 @@ app.UseAuthorization();
 
 app.MapControllerRoute(
     name: "default",
-    pattern: "{controller=Account}/{action=Register}/{id?}");
+    pattern: "{controller=Account}/{action=Login}/{id?}");
 
 app.Run();

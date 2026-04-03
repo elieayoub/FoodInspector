@@ -119,8 +119,21 @@
 
         <!-- Actions -->
         <div class="d-flex gap-2 justify-content-center mb-4">
+            @if (Model.ScanResultId.HasValue)
+            {
+                var iAteColor = Model.Analysis?.OverallVerdict == "Buy" ? "success" : "danger";
+                <form asp-controller="Scan" asp-action="IAteThat" method="post" class="d-inline">
+                    <input type="hidden" name="scanResultId" value="@Model.ScanResultId" />
+                    <button type="submit" class="btn btn-@iAteColor btn-lg">
+                        <i class="bi bi-egg-fried"></i> I Ate This
+                    </button>
+                </form>
+            }
             <a asp-controller="Scan" asp-action="Index" class="btn btn-success btn-lg">
                 <i class="bi bi-camera"></i> Scan Another
+            </a>
+            <a asp-controller="Dashboard" asp-action="Today" class="btn btn-outline-info btn-lg">
+                <i class="bi bi-heart-pulse"></i> My Health
             </a>
             <a asp-controller="Scan" asp-action="History" class="btn btn-outline-secondary btn-lg">
                 <i class="bi bi-clock-history"></i> History

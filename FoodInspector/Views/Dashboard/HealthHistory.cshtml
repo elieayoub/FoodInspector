@@ -1,0 +1,58 @@
+@model FoodInspector.Models.DashboardViewModel
+@{
+    ViewData["Title"] = "Health History";
+}
+
+<div class="row justify-content-center">
+    <div class="col-12 col-md-8 col-lg-6">
+
+        <h4 class="fw-bold text-success mb-3">
+            <i class="bi bi-calendar-check"></i> Your Health History
+        </h4>
+
+        @if (!Model.HealthHistory.Any())
+        {
+            <div class="text-center text-muted py-5">
+                <i class="bi bi-inbox" style="font-size:3rem;"></i>
+                <p>No health history yet. Start logging what you eat!</p>
+                <a asp-controller="Scan" asp-action="Index" class="btn btn-success">
+                    <i class="bi bi-camera"></i> Scan Food
+                </a>
+            </div>
+        }
+        else
+        {
+            <div class="list-group mb-3">
+                @foreach (var day in Model.HealthHistory)
+                {
+                    var dayColor = day.IsHealthy ? "success" : "danger";
+                    var dayEmoji = day.IsHealthy ? "✅" : "⚠️";
+                    var dayStatus = day.IsHealthy ? "Healthy" : $"Unhealthy ({day.AlertCount} alert(s))";
+
+                    <div class="list-group-item border-start border-4 border-@dayColor">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong>@dayEmoji @day.Date.ToString("ddd, MMM d")</strong>
+                                <br />
+                                <small class="text-muted">
+                                    @day.TotalMeals meal(s) — @day.BadIngredientCount bad ingredient(s)
+                                </small>
+                            </div>
+                            <span class="badge bg-@dayColor fs-6">@dayStatus</span>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+
+        <div class="d-flex gap-2 justify-content-center mb-4">
+            <a asp-controller="Dashboard" asp-action="Today" class="btn btn-outline-info btn-lg">
+                <i class="bi bi-heart-pulse"></i> Today
+            </a>
+            <a asp-controller="Scan" asp-action="Index" class="btn btn-success btn-lg">
+                <i class="bi bi-camera"></i> Scan Food
+            </a>
+        </div>
+
+    </div>
+</div>

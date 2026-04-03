@@ -1,5 +1,6 @@
 using Xunit;
 using System.Text.Json;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
 using FoodInspector.Controllers;
@@ -476,5 +477,133 @@ public class ScanControllerTests
         Assert.Equal("Avoid", model.Analysis!.OverallVerdict);
 
         _mockAnalyzer.Verify(a => a.AnalyzeAsync("caffeine", 8), Times.Once);
+    }
+
+    // ── POST IAteThat ──
+
+    [Fact]
+    public async Task IAteThat_NoSession_RedirectsToRegister()
+    {
+        var controller = CreateController(withSession: false);
+
+        var result = await controller.IAteThat(1);
+
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("Register", redirect.ActionName);
+        Assert.Equal("Account", redirect.ControllerName);
+    }
+
+    [Fact]
+    public async Task IAteThat_InvalidScanId_RedirectsToIndex()
+    {
+        var controller = CreateController();
+        controller.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(
+            controller.HttpContext, new TestTempDataProvider());
+
+        var result = await controller.IAteThat(999);
+
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("Index", redirect.ActionName);
+    }
+
+    [Fact]
+    public async Task IAteThat_ValidScan_CreatesFoodLogAndRedirects()
+    {
+        var db = DbHelper.CreateInMemoryContext();
+        var controller = new ScanController(_mockOcr.Object, _mockAnalyzer.Object, db);
+        SessionHelper.SetupSession(controller, userId: 1, userName: "Alice", userAge: 25);
+
+        // Need TempData for the redirect message
+        controller.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(
+            controller.HttpContext, new TestTempDataProvider());
+
+        var scan = new ScanResult
+        {
+            UserId = 1,
+            ExtractedText = "sugar, flour",
+            AnalysisJson = "{\"OverallVerdict\":\"Buy\",\"Summary\":\"OK\",\"Ingredients\":[]}"
+        };
+        db.ScanResults.Add(scan);
+        await db.SaveChangesAsync();
+
+        var result = await controller.IAteThat(scan.Id);
+
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("Today", redirect.ActionName);
+        Assert.Equal("Dashboard", redirect.ControllerName);
+
+        var foodLog = Assert.Single(db.FoodLogs);
+        Assert.Equal(1, foodLog.UserId);
+        Assert.Equal(scan.Id, foodLog.ScanResultId);
+        Assert.Equal("sugar, flour", foodLog.ExtractedText);
+    }
+
+    [Fact]
+    public async Task IAteThat_OtherUserScan_RedirectsToIndex()
+    {
+        var db = DbHelper.CreateInMemoryContext();
+        var controller = new ScanController(_mockOcr.Object, _mockAnalyzer.Object, db);
+        SessionHelper.SetupSession(controller, userId: 1, userName: "Alice", userAge: 25);
+
+        controller.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(
+            controller.HttpContext, new TestTempDataProvider());
+
+        // Scan belongs to user 2
+        var scan = new ScanResult { UserId = 2, ExtractedText = "sugar", AnalysisJson = "{}" };
+        db.ScanResults.Add(scan);
+        await db.SaveChangesAsync();
+
+        var result = await controller.IAteThat(scan.Id);
+
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("Index", redirect.ActionName);
+        Assert.Empty(db.FoodLogs);
+    }
+
+    [Fact]
+    public async Task IAteThat_SetsScanResultIdInAnalyzeResult()
+    {
+        var db = DbHelper.CreateInMemoryContext();
+        var controller = new ScanController(_mockOcr.Object, _mockAnalyzer.Object, db);
+        SessionHelper.SetupSession(controller, userId: 1, userName: "Alice", userAge: 25);
+
+        var imageBase64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==";
+
+        _mockOcr.Setup(o => o.ExtractTextAsync(It.IsAny<byte[]>()))
+            .ReturnsAsync("flour");
+
+        _mockAnalyzer.Setup(a => a.AnalyzeAsync("flour", 25))
+            .ReturnsAsync(new IngredientAnalysis
+            {
+                OverallVerdict = "Buy",
+                Summary = "Safe",
+                Ingredients = new List<IngredientDetail>
+                {
+                    new() { Name = "flour", Status = "Neutral", Reason = "OK" }
+                }
+            });
+
+        var result = await controller.Analyze(imageBase64);
+
+        var viewResult = Assert.IsType<ViewResult>(result);
+        var model = Assert.IsType<ScanViewModel>(viewResult.Model);
+        Assert.NotNull(model.ScanResultId);
+        Assert.True(model.ScanResultId > 0);
+    }
+}
+
+/// <summary>
+/// Minimal ITempDataProvider for unit testing controllers that use TempData.
+/// </summary>
+public class TestTempDataProvider : Microsoft.AspNetCore.Mvc.ViewFeatures.ITempDataProvider
+{
+    private readonly Dictionary<string, object?> _data = new();
+
+    public IDictionary<string, object?> LoadTempData(HttpContext context) => _data;
+
+    public void SaveTempData(HttpContext context, IDictionary<string, object?> values)
+    {
+        foreach (var kvp in values)
+            _data[kvp.Key] = kvp.Value;
     }
 }

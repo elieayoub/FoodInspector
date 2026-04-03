@@ -77,6 +77,9 @@ public class ModelTests
         var vm = new RegisterViewModel();
 
         Assert.Equal(string.Empty, vm.Name);
+        Assert.Equal(string.Empty, vm.Email);
+        Assert.Equal(string.Empty, vm.Password);
+        Assert.Equal(string.Empty, vm.ConfirmPassword);
         Assert.Equal(0, vm.Age);
     }
 
@@ -87,6 +90,7 @@ public class ModelTests
     {
         var vm = new ScanViewModel();
 
+        Assert.Null(vm.ScanResultId);
         Assert.Null(vm.ImageBase64);
         Assert.Null(vm.ExtractedText);
         Assert.Null(vm.Analysis);
