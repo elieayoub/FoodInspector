@@ -293,4 +293,188 @@ public class ScanControllerTests
         var models = Assert.IsAssignableFrom<List<ScanViewModel>>(viewResult.Model);
         Assert.Equal(20, models.Count);
     }
+
+    // ── POST Reanalyze ──
+
+    [Fact]
+    public async Task Reanalyze_NoSession_RedirectsToRegister()
+    {
+        var controller = CreateController(withSession: false);
+
+        var result = await controller.Reanalyze("sugar, flour", null);
+
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("Register", redirect.ActionName);
+        Assert.Equal("Account", redirect.ControllerName);
+    }
+
+    [Fact]
+    public async Task Reanalyze_EmptyText_ReturnsResultViewWithError()
+    {
+        var controller = CreateController();
+
+        var result = await controller.Reanalyze("", null);
+
+        var viewResult = Assert.IsType<ViewResult>(result);
+        Assert.Equal("Result", viewResult.ViewName);
+        Assert.Equal("Ingredient text cannot be empty.", (string)controller.ViewBag.Error);
+    }
+
+    [Fact]
+    public async Task Reanalyze_WhitespaceText_ReturnsResultViewWithError()
+    {
+        var controller = CreateController();
+
+        var result = await controller.Reanalyze("   ", null);
+
+        var viewResult = Assert.IsType<ViewResult>(result);
+        Assert.Equal("Result", viewResult.ViewName);
+        Assert.Equal("Ingredient text cannot be empty.", (string)controller.ViewBag.Error);
+    }
+
+    [Fact]
+    public async Task Reanalyze_NullText_ReturnsResultViewWithError()
+    {
+        var controller = CreateController();
+
+        var result = await controller.Reanalyze(null!, null);
+
+        var viewResult = Assert.IsType<ViewResult>(result);
+        Assert.Equal("Result", viewResult.ViewName);
+    }
+
+    [Fact]
+    public async Task Reanalyze_ValidText_ReturnsResultViewWithUpdatedAnalysis()
+    {
+        var db = DbHelper.CreateInMemoryContext();
+        var controller = new ScanController(_mockOcr.Object, _mockAnalyzer.Object, db);
+        SessionHelper.SetupSession(controller, userId: 1, userName: "Alice", userAge: 25);
+
+        var updatedText = "sugar, flour, salt";
+        var expectedAnalysis = new IngredientAnalysis
+        {
+            OverallVerdict = "Caution",
+            Summary = "Contains sugar",
+            Ingredients = new List<IngredientDetail>
+            {
+                new() { Name = "sugar", Status = "Bad", Reason = "High sugar" },
+                new() { Name = "flour", Status = "Neutral", Reason = "OK" },
+                new() { Name = "salt", Status = "Neutral", Reason = "OK" }
+            }
+        };
+
+        _mockAnalyzer.Setup(a => a.AnalyzeAsync(updatedText, 25))
+            .ReturnsAsync(expectedAnalysis);
+
+        var result = await controller.Reanalyze(updatedText, "data:image/png;base64,abc123");
+
+        var viewResult = Assert.IsType<ViewResult>(result);
+        Assert.Equal("Result", viewResult.ViewName);
+
+        var model = Assert.IsType<ScanViewModel>(viewResult.Model);
+        Assert.Equal(updatedText, model.ExtractedText);
+        Assert.Equal("Caution", model.Analysis!.OverallVerdict);
+        Assert.Equal(3, model.Analysis.Ingredients.Count);
+        Assert.Equal("data:image/png;base64,abc123", model.ImageBase64);
+    }
+
+    [Fact]
+    public async Task Reanalyze_ValidText_PersistsToDatabase()
+    {
+        var db = DbHelper.CreateInMemoryContext();
+        var controller = new ScanController(_mockOcr.Object, _mockAnalyzer.Object, db);
+        SessionHelper.SetupSession(controller, userId: 1, userName: "Alice", userAge: 25);
+
+        var updatedText = "vitamin c, iron";
+        _mockAnalyzer.Setup(a => a.AnalyzeAsync(updatedText, 25))
+            .ReturnsAsync(new IngredientAnalysis
+            {
+                OverallVerdict = "Buy",
+                Summary = "Healthy",
+                Ingredients = new List<IngredientDetail>
+                {
+                    new() { Name = "vitamin c", Status = "Good", Reason = "Beneficial" },
+                    new() { Name = "iron", Status = "Good", Reason = "Essential mineral" }
+                }
+            });
+
+        await controller.Reanalyze(updatedText, null);
+
+        var scanResult = Assert.Single(db.ScanResults);
+        Assert.Equal(1, scanResult.UserId);
+        Assert.Equal("vitamin c, iron", scanResult.ExtractedText);
+        Assert.Contains("Buy", scanResult.AnalysisJson);
+    }
+
+    [Fact]
+    public async Task Reanalyze_PreservesUserInfoInViewModel()
+    {
+        var db = DbHelper.CreateInMemoryContext();
+        var controller = new ScanController(_mockOcr.Object, _mockAnalyzer.Object, db);
+        SessionHelper.SetupSession(controller, userId: 1, userName: "Bob", userAge: 30);
+
+        _mockAnalyzer.Setup(a => a.AnalyzeAsync(It.IsAny<string>(), 30))
+            .ReturnsAsync(new IngredientAnalysis
+            {
+                OverallVerdict = "Buy",
+                Summary = "OK",
+                Ingredients = new List<IngredientDetail>()
+            });
+
+        var result = await controller.Reanalyze("flour", null);
+
+        var viewResult = Assert.IsType<ViewResult>(result);
+        var model = Assert.IsType<ScanViewModel>(viewResult.Model);
+        Assert.Equal("Bob", model.UserName);
+        Assert.Equal(30, model.UserAge);
+    }
+
+    [Fact]
+    public async Task Reanalyze_NullImageData_SetsNullInViewModel()
+    {
+        var db = DbHelper.CreateInMemoryContext();
+        var controller = new ScanController(_mockOcr.Object, _mockAnalyzer.Object, db);
+        SessionHelper.SetupSession(controller, userId: 1, userName: "Alice", userAge: 25);
+
+        _mockAnalyzer.Setup(a => a.AnalyzeAsync(It.IsAny<string>(), 25))
+            .ReturnsAsync(new IngredientAnalysis
+            {
+                OverallVerdict = "Buy",
+                Summary = "OK",
+                Ingredients = new List<IngredientDetail>()
+            });
+
+        var result = await controller.Reanalyze("flour", null);
+
+        var viewResult = Assert.IsType<ViewResult>(result);
+        var model = Assert.IsType<ScanViewModel>(viewResult.Model);
+        Assert.Null(model.ImageBase64);
+    }
+
+    [Fact]
+    public async Task Reanalyze_UsesUserAgeForAnalysis()
+    {
+        var db = DbHelper.CreateInMemoryContext();
+        var controller = new ScanController(_mockOcr.Object, _mockAnalyzer.Object, db);
+        SessionHelper.SetupSession(controller, userId: 1, userName: "Child", userAge: 8);
+
+        _mockAnalyzer.Setup(a => a.AnalyzeAsync("caffeine", 8))
+            .ReturnsAsync(new IngredientAnalysis
+            {
+                OverallVerdict = "Avoid",
+                Summary = "Not suitable for children",
+                Ingredients = new List<IngredientDetail>
+                {
+                    new() { Name = "caffeine", Status = "Bad", Reason = "Not for children under 12" }
+                }
+            });
+
+        var result = await controller.Reanalyze("caffeine", null);
+
+        var viewResult = Assert.IsType<ViewResult>(result);
+        var model = Assert.IsType<ScanViewModel>(viewResult.Model);
+        Assert.Equal("Avoid", model.Analysis!.OverallVerdict);
+
+        _mockAnalyzer.Verify(a => a.AnalyzeAsync("caffeine", 8), Times.Once);
+    }
 }

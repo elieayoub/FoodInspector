@@ -49,15 +49,33 @@
             </div>
         }
 
-        <!-- Extracted Text -->
+        <!-- Extracted Text (editable) -->
         @if (!string.IsNullOrWhiteSpace(Model.ExtractedText))
         {
             <div class="card mb-3">
-                <div class="card-header bg-light">
-                    <i class="bi bi-card-text"></i> Extracted Text (OCR)
+                <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-card-text"></i> Extracted Text (OCR)</span>
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="editTextBtn" onclick="toggleEdit()">
+                        <i class="bi bi-pencil"></i> Edit
+                    </button>
                 </div>
                 <div class="card-body">
-                    <pre class="mb-0" style="white-space:pre-wrap; font-size:0.85rem;">@Model.ExtractedText</pre>
+                    <!-- Read-only view -->
+                    <pre id="textReadonly" class="mb-0" style="white-space:pre-wrap; font-size:0.85rem;">@Model.ExtractedText</pre>
+
+                    <!-- Editable form (hidden by default) -->
+                    <form id="reanalyzeForm" asp-controller="Scan" asp-action="Reanalyze" method="post" style="display:none;">
+                        <textarea name="extractedText" id="editableText" class="form-control mb-2" rows="6" style="font-size:0.85rem;">@Model.ExtractedText</textarea>
+                        <input type="hidden" name="imageData" value="@Model.ImageBase64" />
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-primary btn-sm">
+                                <i class="bi bi-arrow-clockwise"></i> Re-analyze
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="cancelEdit()">
+                                Cancel
+                            </button>
+                        </div>
+                    </form>
                 </div>
             </div>
         }
@@ -111,3 +129,21 @@
 
     </div>
 </div>
+
+@section Scripts {
+    <script>
+        function toggleEdit() {
+            document.getElementById('textReadonly').style.display = 'none';
+            document.getElementById('editTextBtn').style.display = 'none';
+            document.getElementById('reanalyzeForm').style.display = 'block';
+            document.getElementById('editableText').focus();
+        }
+
+        function cancelEdit() {
+            document.getElementById('textReadonly').style.display = 'block';
+            document.getElementById('editTextBtn').style.display = 'inline-block';
+            document.getElementById('reanalyzeForm').style.display = 'none';
+            document.getElementById('editableText').value = document.getElementById('textReadonly').textContent;
+        }
+    </script>
+}

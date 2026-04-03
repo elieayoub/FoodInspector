@@ -102,6 +102,47 @@ public class ScanController : Controller
         }
     }
 
+    [HttpPost]
+    public async Task<IActionResult> Reanalyze([FromForm] string extractedText, [FromForm] string? imageData)
+    {
+        var userId = HttpContext.Session.GetInt32("UserId");
+        if (userId == null)
+            return RedirectToAction("Register", "Account");
+
+        var userName = HttpContext.Session.GetString("UserName") ?? "";
+        var userAge = HttpContext.Session.GetInt32("UserAge") ?? 25;
+
+        var vm = new ScanViewModel
+        {
+            UserName = userName,
+            UserAge = userAge,
+            ImageBase64 = imageData
+        };
+
+        if (string.IsNullOrWhiteSpace(extractedText))
+        {
+            ViewBag.Error = "Ingredient text cannot be empty.";
+            return View("Result", vm);
+        }
+
+        var analysis = await _analyzer.AnalyzeAsync(extractedText, userAge);
+
+        // Persist the updated scan
+        var scanResult = new ScanResult
+        {
+            UserId = userId.Value,
+            ExtractedText = extractedText,
+            AnalysisJson = JsonSerializer.Serialize(analysis)
+        };
+        _db.ScanResults.Add(scanResult);
+        await _db.SaveChangesAsync();
+
+        vm.ExtractedText = extractedText;
+        vm.Analysis = analysis;
+
+        return View("Result", vm);
+    }
+
     [HttpGet]
     public async Task<IActionResult> History()
     {
