@@ -27,4 +27,10 @@
     <ProjectReference Include="..\FoodInspector\FoodInspector.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="Images\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>
